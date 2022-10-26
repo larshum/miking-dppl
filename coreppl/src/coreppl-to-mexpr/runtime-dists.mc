@@ -146,7 +146,22 @@ lang RuntimeDistEmpirical = RuntimeDistBase
   | DistEmpirical t -> error "Log observe not supported for empirical distribution"
 end
 
-lang RuntimeDist = RuntimeDistElementary + RuntimeDistEmpirical
+-- A distribution representing a combination of independent distributions.
+lang RuntimeDistCombined
+  syn Dist a =
+  | DistCombinedIndependent { combined : [Dist a] }
+
+  -- NOTE(larshum, 2022-10-26): We need to use unsafeCoerce here as these
+  -- distributions only work for type 'all a. Dist [a] -> [a]'
+  sem sample =
+  | DistCombinedIndependent t -> unsafeCoerce (map sample t.combined)
+
+  sem logObserve =
+  | DistCombinedIndependent t -> unsafeCoerce (map logObserve t.combined)
+end
+
+lang RuntimeDist =
+  RuntimeDistElementary + RuntimeDistEmpirical + RuntimeDistCombined
 end
 
 -- We include the below definitions to produce non-mangled functions, which we
@@ -166,6 +181,10 @@ let distEmpiricalNormConst : all a. Dist a -> Float =
 let distEmpiricalAcceptRate : all a. Dist a -> Float =
   use RuntimeDist in
   empiricalAcceptRate
+
+let distCombineIndependent : all a. [Dist a] -> Dist a = lam dists.
+  use RuntimeDist in
+  DistCombinedIndependent { combined = dists }
 
 let sample : all a. Dist a -> a =
   use RuntimeDist in

@@ -111,6 +111,7 @@ let builtin = use MExprPPL in concat
   , ("distEmpiricalDegenerate", CDistEmpiricalDegenerate ())
   , ("distEmpiricalNormConst", CDistEmpiricalNormConst ())
   , ("distEmpiricalAcceptRate", CDistEmpiricalAcceptRate ())
+  , ("distCombineIndependent", CDistCombineIndependent ())
   ] builtin
 
 let parseMCorePPLFile = lam filename.
