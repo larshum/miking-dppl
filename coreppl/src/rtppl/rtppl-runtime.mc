@@ -51,18 +51,22 @@ let startTimeInit : () -> Ref (Int, Int) = lam. ref (clockGetTime ())
 -- is an integer denoting the number of milliseconds of overrun.
 let delayBy : Ref (Int, Int) -> Int -> Int =
   lam startTime. lam delay.
+  let oldPriority = setMaxPriority () in
   let intervalTime = millisToTimespec delay in
   let endTime = clockGetTime () in
   let elapsedTime = diffTimespec endTime (deref startTime) in
   let waitTime = addTimespec (deref startTime) intervalTime in
   modref startTime waitTime;
-  let c = cmpTimespec intervalTime elapsedTime in
-  if gti c 0 then clockNanosleep waitTime; 0
-  else if eqi c 0 then 0
-  else if lti c 0 then
-    let elapsedTime = diffTimespec endTime waitTime in
-    timespecToMillis elapsedTime
-  else never
+  let overrun =
+    let c = cmpTimespec intervalTime elapsedTime in
+    if gti c 0 then clockNanosleep waitTime; 0
+    else if lti c 0 then
+      let elapsedTime = diffTimespec endTime waitTime in
+      timespecToMillis elapsedTime
+    else 0
+  in
+  setPriority oldPriority;
+  overrun
 
 mexpr
 
