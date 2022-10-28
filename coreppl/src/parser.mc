@@ -118,6 +118,9 @@ let builtin = use MExprPPL in concat
   , ("distCombineIndependent", CDistCombineIndependent ())
   ] builtin
 
+-- TODO(larshum, 2022-10-28): Do this in separate compiler.
+let pplKeywords = concat pplKeywords rtpplKeywords
+
 let parseMCorePPLFile = lam filename.
   use DPPLParser in
   -- Read and parse the mcore file

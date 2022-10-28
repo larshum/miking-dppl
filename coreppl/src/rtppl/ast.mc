@@ -51,7 +51,7 @@ lang SdelayAst =
     TmSdelay {t with ty = TyArrow {from = tyint, to = tyint, info = t.info}}
 
   sem normalize k =
-  | TmSdelay t -> TmSdelay t
+  | TmSdelay t -> k (TmSdelay t)
 
   sem typeLiftExpr env =
   | TmSdelay t -> (env, TmSdelay t)
