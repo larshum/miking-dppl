@@ -12,6 +12,9 @@ include "build.mc"
 include "src-location.mc"
 include "coreppl-to-mexpr/compile.mc"
 
+-- TODO(larshum, 2022-10-28): do this somewhere else
+include "rtppl/transform.mc"
+
 include "option.mc"
 include "string.mc"
 include "common.mc"
@@ -23,7 +26,8 @@ let errMsgPrintFunction = "Return type cannot be printed"
 
 lang CPPLLang =
   MExprAst + DPPLExtract + MExprCompile + TransformDist +
-  MExprEliminateDuplicateCode + MExprSubstitute
+  MExprEliminateDuplicateCode + MExprSubstitute +
+  RTPPLTransform -- TODO(larshum, 2022-10-28): Do this in separate compiler
 
   -- Generates an AST node for the function used to print a sampled value.
   -- TODO(larshum, 2022-10-21): Add support for printing int and bool types.
@@ -137,6 +141,10 @@ match result with ParseOK r then
     -- Read and parse the file
     let filename = head r.strings in
     let ast = parseMCorePPLFile filename in
+
+    -- TODO(larshum, 2022-10-28): Do the real-time transformations in a
+    -- separate "compiler".
+    let ast = replaceSdelay ast in
 
     -- Load the runtimes used in the provided AST, and collect identifiers of
     -- common methods within the runtimes.

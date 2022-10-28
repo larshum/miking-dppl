@@ -7,6 +7,9 @@ include "coreppl.mc"
 include "pgm.mc"
 include "inference-common/smc.mc"
 
+-- TODO(larshum, 2022-10-28): Do this in separate compiler
+include "rtppl/parser.mc"
+
 -- Include the inference method definition definition files.
 include "coreppl-to-mexpr/apf/method.mc"
 include "coreppl-to-mexpr/bpf/method.mc"
@@ -18,6 +21,7 @@ include "coreppl-to-mexpr/mcmc-trace/method.mc"
 lang DPPLParser =
   BootParser + MExprPrettyPrint + MExprPPL + Resample +
   ProbabilisticGraphicalModel + KeywordMaker +
+  RTPPLParser + -- TODO(larshum, 2022-10-28): Do this in separate compiler
 
   ImportanceSamplingMethod + BPFMethod + APFMethod +
   LightweightMCMCMethod  + NaiveMCMCMethod + TraceMCMCMethod
