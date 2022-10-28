@@ -12,9 +12,9 @@ lang RTPPLTransform = RTPPLAst + MExprEliminateDuplicateCode + MExprFindSym + Bo
   | ast ->
     let path = concat corepplSrcLoc "/rtppl/rtppl-runtime.mc" in
     let sdelayRuntime = loadRuntime path in
-    match findNamesOfStrings ["startTimeInit", "delayBy"] sdelayRuntime
-    with [Some startTimeInitId, Some delayById] then
-      let ast = transformSdelay (startTimeInitId, delayById) ast in
+    match findNamesOfStrings ["startTime", "delayBy"] sdelayRuntime
+    with [Some startTimeId, Some delayById] then
+      let ast = transformSdelay (startTimeId, delayById) ast in
       let astWithRuntime = bind_ sdelayRuntime ast in
       eliminateDuplicateCode astWithRuntime
     else error "Error while loading RTPPL runtime"
@@ -32,7 +32,7 @@ lang RTPPLTransform = RTPPLAst + MExprEliminateDuplicateCode + MExprFindSym + Bo
   sem transformSdelay : (Name, Name) -> Expr -> Expr
   sem transformSdelay rtIds =
   | TmSdelay t ->
-    match rtIds with (startTimeInitId, delayById) in
-    appf2_ (nvar_ delayById) (app_ (nvar_ startTimeInitId) unit_) (int_ t.millis)
+    match rtIds with (startTimeId, delayById) in
+    appf2_ (nvar_ delayById) (nvar_ startTimeId) (int_ t.millis)
   | t -> smap_Expr_Expr (transformSdelay rtIds) t
 end

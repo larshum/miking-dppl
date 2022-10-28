@@ -44,7 +44,7 @@ let cmpTimespec : (Int, Int) -> (Int, Int) -> Int =
   else if lti lns rns then negi 1
   else 0
 
-let startTimeInit : () -> Ref (Int, Int) = lam. ref (clockGetTime ())
+let startTime : Ref (Int, Int) = ref (clockGetTime ())
 
 -- Delays execution by a given amount of delay, in milliseconds, given a
 -- reference containing the start time of the current timing point. The result
@@ -56,7 +56,6 @@ let delayBy : Ref (Int, Int) -> Int -> Int =
   let endTime = clockGetTime () in
   let elapsedTime = diffTimespec endTime (deref startTime) in
   let waitTime = addTimespec (deref startTime) intervalTime in
-  modref startTime waitTime;
   let overrun =
     let c = cmpTimespec intervalTime elapsedTime in
     if gti c 0 then clockNanosleep waitTime; 0
@@ -65,6 +64,7 @@ let delayBy : Ref (Int, Int) -> Int -> Int =
       timespecToMillis elapsedTime
     else 0
   in
+  modref startTime waitTime;
   setPriority oldPriority;
   overrun
 
