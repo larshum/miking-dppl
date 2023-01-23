@@ -3,8 +3,9 @@ include "math.mc"
 include "string.mc"
 
 let inferModel = lam prior. lam.
+  match prior with prior in
   let x = assume prior in
-  observe true (Bernoulli (exp x));
+  observe true (Bernoulli x); resample;
   x
 
 -- Repeatedly run inference on the prior until we get a 1 from randIntU.
@@ -14,14 +15,6 @@ recursive let loop : Dist Float -> Dist Float = lam prior.
     posterior
   else loop posterior
 end
-
-let obsBernoulliTrue = lam x.
-  observe true (Bernoulli x)
-
-let model = lam alpha. lam beta.
-  let x = assume (Beta alpha beta) in
-  obsBernoulliTrue x;
-  x
 
 let printRes = lam printFun. lam dist.
   match distEmpiricalSamples dist with (samples, weights) in
@@ -43,28 +36,5 @@ let printDist = lam dist.
 
 mexpr
 
-let alpha = divf (int2float (randIntU 0 100)) 10.0 in
-let beta = divf (int2float (randIntU 0 100)) 10.0 in
-
--- Run the model using each of the available runtimes
-let p = randIntU 0 10 in
-let dist = infer (Importance {particles = p}) (lam. model alpha beta) in
-printDist dist;
-
-let dist = infer (BPF {particles = p}) (lam. model alpha beta) in
-printDist dist;
-
-let dist = infer (APF {particles = p}) (lam. model alpha beta) in
-printDist dist;
-
-let dist = infer (LightweightMCMC {iterations = p}) (lam. model alpha beta) in
-printDist dist;
-
-let dist = infer (NaiveMCMC {iterations = p}) (lam. model alpha beta) in
-printDist dist;
-
-let dist = infer (TraceMCMC {iterations = p}) (lam. model alpha beta) in
-printDist dist;
-
-let dist = loop (Uniform 1.0 2.0) in
+let dist = loop (Uniform 0.0 1.0) in
 printDist dist
