@@ -38,7 +38,7 @@ lang SdelayAst =
   sem eqExprH env free lhs =
   | TmSdelay r ->
     match lhs with TmSdelay l then
-      if eqi l.millis r.mills then Some free
+      if eqi l.millis r.millis then Some free
       else None ()
     else None ()
 
