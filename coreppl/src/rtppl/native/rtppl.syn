@@ -1,0 +1,170 @@
+language Rtppl
+
+include "lexer.mc"
+
+start RtpplProgram
+
+type RtpplProgram
+type RtpplTop
+type RtpplStmt
+type RtpplLoopStmt
+type RtpplStmtNoIdent
+type RtpplExpr {grouping = "(" ")", }
+type RtpplExprNoIdent
+type RtpplType {grouping = "(" ")", }
+type RtpplTypeNoIdent
+type RtpplConst
+
+type RtpplPort
+
+type RtpplMain
+type RtpplTask
+type RtpplConnection
+type RtpplPortSpec
+
+token LIdent {
+  repr = LIdentRepr {},
+  constructor = LIdentTok,
+  fragment = LIdentTokenParser,
+  ty = String,
+}
+token UIdent {
+  repr = UIdentRepr {},
+  constructor = UIdentTok,
+  fragment = UIdentTokenParser,
+  ty = String,
+}
+token Integer {
+  repr = IntRepr {},
+  constructor = IntTok,
+  fragment = UIntTokenParser,
+  ty = Int,
+}
+token Float {
+  repr = FloatRepr {},
+  constructor = FloatTok,
+  fragment = UFloatTokenParser,
+  ty = Float,
+}
+token Boolean {
+  repr = BoolRepr {},
+  constructor = BoolTok,
+  fragment = BooleanTokenParser,
+  ty = Bool,
+}
+token StringLit {
+  repr = StringRepr {},
+  constructor = StringTok,
+  fragment = StringTokenParser,
+  ty = String,
+}
+
+token LName {
+  base = LIdent,
+  wrap = nameNoSym,
+  ty = Name,
+}
+token UName {
+  base = UIdent,
+  wrap = nameNoSym,
+  ty = Name,
+}
+
+token {fragment = OperatorTokenParser,}
+token {fragment = CommaTokenParser,}
+token {fragment = BracketTokenParser,}
+token {fragment = WhitespaceParser,}
+token {fragment = RTPPLLineCommentParser,}
+
+prod Program : RtpplProgram = tops:RtpplTop* main:RtpplMain
+
+prod Sensor : RtpplTop = "sensor" id:LName ":" ty:RtpplType
+prod Actuator : RtpplTop = "actuator" id:LName ":" ty:RtpplType
+prod Constant : RtpplTop = "const" id:LName ":" ty:RtpplType "=" e:RtpplExpr
+prod TypeAlias : RtpplTop = "type" id:UName "=" ty:RtpplType
+prod FunctionDef : RtpplTop =
+  "def" id:LName "(" (params:{id:LName ":" ty:RtpplType} ("," params:{id:LName ":" ty:RtpplType})*)? ")"
+  ":" ty:RtpplType "{" body:{ports:RtpplPort* stmts:RtpplStmt* ("return" ret:RtpplExpr)?} "}"
+
+prod Input : RtpplPort = "input" id:LIdent ":" ty:RtpplType
+prod Output : RtpplPort = "output" id:LIdent ":" ty:RtpplType
+prod ActuatorOutput : RtpplPort = "actuator" "output" id:LIdent ":" ty:RtpplType
+
+prod Binding : RtpplStmt = "var" id:LName ":" ty:RtpplType "=" e:RtpplExpr
+prod Observe : RtpplStmt = "observe" e:RtpplExpr "~" d:RtpplExpr
+prod Assume : RtpplStmt = "assume" id:LName "~" d:RtpplExpr
+prod Condition : RtpplStmt =
+  "cond" id:LName? "if" cond:RtpplExpr "{" thn:RtpplStmt* "}" "else" "{" els:RtpplStmt* "}"
+prod LoopPlusStmt : RtpplStmt = "loop" id:LName? loop:RtpplLoopStmt
+
+-- NOTE(larshum, 2023-03-06): Grammar workarounds to make it LL(1).
+prod ForIn : RtpplLoopStmt = "for" id:LName "in" e:RtpplExpr "{" body:RtpplStmt* "}"
+prod InfLoop : RtpplLoopStmt = "{" body:RtpplStmt* "}"
+
+prod IdentPlusStmt : RtpplStmt = id:LName next:RtpplStmtNoIdent
+prod Reassign : RtpplStmtNoIdent = ("." proj:LIdent)? "=" e:RtpplExpr
+prod FunctionCallS : RtpplStmtNoIdent = "(" (args:RtpplExpr ("," args:RtpplExpr)*)? ")"
+prod IdentPlusExpr : RtpplExpr = id:LName next:RtpplExprNoIdent
+prod Variable : RtpplExprNoIdent = empty
+prod FunctionCallE : RtpplExprNoIdent = "(" (args:RtpplExpr ("," args:RtpplExpr)*)? ")"
+prod Projection : RtpplExprNoIdent = "." id:LIdent
+
+prod ArrayAccess : RtpplExpr = e:RtpplExpr "[" idx:RtpplExpr "]"
+prod ArrayLit : RtpplExpr = "[" (elems:RtpplExpr ("," elems:RtpplExpr)*)? "]"
+prod RecordLit : RtpplExpr = "{" (fields:{id:LIdent "=" e:RtpplExpr} ("," fields:{id:LIdent "=" e:RtpplExpr})*)? "}"
+prod Literal : RtpplExpr = const:RtpplConst
+
+-- NOTE(larshum, 2023-04-05): Definition of elementary distributions
+prod GaussianDist : RtpplExpr = "Gaussian" "(" mu:RtpplExpr "," sigma:RtpplExpr ")"
+prod UniformDist : RtpplExpr = "Uniform" "(" lo:RtpplExpr "," hi:RtpplExpr ")"
+
+infix AddInt : RtpplExpr = "+"
+infix SubInt : RtpplExpr = "-"
+infix MulInt : RtpplExpr = "*"
+infix DivInt : RtpplExpr = "/"
+infix Rem : RtpplExpr = "%"
+infix Eq : RtpplExpr = "=="
+infix Geq : RtpplExpr = ">="
+infix LtInt : RtpplExpr = "<"
+infix GtInt : RtpplExpr = ">"
+infix AddFloat : RtpplExpr = "+."
+infix SubFloat : RtpplExpr = "-."
+infix MulFloat : RtpplExpr = "*."
+infix DivFloat : RtpplExpr = "/."
+infix LtFloat : RtpplExpr = "<."
+infix GtFloat : RtpplExpr = ">."
+infix And : RtpplExpr = "&&"
+
+precedence {
+  MulInt DivInt MulFloat DivFloat Rem;
+  AddInt SubInt AddFloat SubFloat;
+  Eq Geq LtInt GtInt LtFloat GtFloat;
+  And;
+}
+
+prod Main : RtpplMain =
+  "main" "(" (params:{id:LName ":" ty:RtpplType} ("," params:{id:LName ":" ty:RtpplType})*)? ")"
+  "{" tasks:RtpplTask* connections:RtpplConnection* "}"
+
+prod Task : RtpplTask = "task" id:LName "=" templateId:LName "(" (args:RtpplExpr ("," args:RtpplExpr)*)? ")"
+prod Connection : RtpplConnection = from:RtpplPortSpec "->" to:RtpplPortSpec
+prod PortSpec : RtpplPortSpec = port:LName ("." id:LIdent)?
+
+prod Int : RtpplType = "Int"
+prod Float : RtpplType = "Float"
+prod Bool : RtpplType = "Bool"
+prod Unit : RtpplType = "Unit"
+prod Seq : RtpplType = "[" ty:RtpplType "]"
+prod Record : RtpplType =
+  "{" (fields:{id:LIdent ":" ty:RtpplType} ("," fields:{id:LIdent ":" ty:RtpplType})*)? "}"
+prod right Function : RtpplType = from:RtpplType "->" to:RtpplType
+
+-- NOTE(larshum, 2023-03-06): Yet another workaround to make grammar LL(1).
+prod Alias : RtpplType = id:UName next:RtpplTypeNoIdent
+prod Direct : RtpplTypeNoIdent = empty
+prod Application : RtpplTypeNoIdent = "(" args:RtpplType ("," args:RtpplType)* ")"
+
+prod LitInt : RtpplConst = value:Integer
+prod LitFloat : RtpplConst = value:Float
+prod LitBool : RtpplConst = value:Boolean
+prod LitString : RtpplConst = value:StringLit
