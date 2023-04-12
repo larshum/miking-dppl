@@ -21,12 +21,12 @@ let optionsConfig = [
   , lam p. {p.options with outputPath = argToString p} )
 ]
 
-let parseOptions : [String] -> RtpplOptions = lam args.
+let parseOptions : () -> RtpplOptions = lam.
   let result =
-    argParse_general {args = args, optionsStartWith = []} optionsDefault optionsConfig
+    argParse optionsDefault optionsConfig
   in
   match result with ParseOK r then
-    match r.strings with [_, filepath] then
+    match r.strings with [filepath] ++ _ then
       {r.options with file = filepath}
-    else dprint r; error ""
+    else error "No input file specified"
   else argPrintError result; exit 1

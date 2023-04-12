@@ -106,12 +106,12 @@ let sdelay : Int -> Int = lam delay.
 
 -- TODO(larshum, 2023-04-11): Add support for payloads other than
 -- floating-point numbers.
-let readPort : String -> [(Timespec, Float)] = lam id.
+let readPort : String -> [TSV Float] = lam id.
   match mapLookup id (deref inputSequences) with Some payload then
     payload
   else error (join ["Could not find inputs for port ", id])
 
-let writePort : String -> Float -> Int = lam id. lam msg. lam offset.
+let writePort : String -> Float -> Int -> () = lam id. lam msg. lam offset.
   let intervalTime = millisToTimespec offset in
   let actuationTime = addTimespec (deref logicalTime) intervalTime in
   -- TODO(larshum, 2023-04-11): This function will open and close a FIFO queue
@@ -119,7 +119,7 @@ let writePort : String -> Float -> Int = lam id. lam msg. lam offset.
   -- open them at startup and then store them until shutdown.
   externalWriteFloatPipe id msg actuationTime
 
-let rtpplRuntimeInit : all a. [String] -> [String] -> (() -> a) -> a =
+let rtpplRuntimeInit : [String] -> [String] -> (() -> Unknown) -> Unknown =
   lam inputs. lam outputs. lam cont.
 
   -- Initialize the input sequences used to buffer the results available for
@@ -140,13 +140,10 @@ let rtpplRuntimeInit : all a. [String] -> [String] -> (() -> a) -> a =
   -- Fill all sequences with currently available inputs before handing over
   -- control to the RTPPL code.
   -- TODO(larshum, 2023-04-11): Should we empty the FIFOs here instead? As we
-  -- don't expect input from before our first observation.
+  -- may not expect input during our first observation.
   updateInputSequences ();
 
   cont ()
-
--- Rough shape of what a call to this function may look like:
--- rtpplRuntimeInit ["a-in1"] ["a-out1"] (lam. addX "a-in1" "a-out1" 1.0)
 
 mexpr
 

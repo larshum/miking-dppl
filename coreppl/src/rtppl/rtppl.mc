@@ -4,12 +4,25 @@ include "compile.mc"
 include "pprint.mc"
 include "validate.mc"
 
+include "../dppl-arg.mc"
+include "../infer-method.mc"
+include "../coreppl-to-mexpr/compile.mc"
+include "../coreppl-to-mexpr/runtimes.mc"
+
 include "mexpr/shallow-patterns.mc"
 include "mexpr/type-check.mc"
 include "ocaml/mcore.mc"
 
+let _rts = lam.
+  use LoadRuntime in
+  let _bpf = BPF {particles = int_ 1} in
+  let _bpfRtEntry = loadRuntimeEntry _bpf "smc-bpf/runtime.mc" in
+  let _defaultRuntimes = mapFromSeq cmpInferMethod [(_bpf, _bpfRtEntry)] in
+  combineRuntimes default _defaultRuntimes
+
 lang Rtppl = 
   RtpplCompile + RtpplValidate + RtpplPrettyPrint +
+  MExprCompile +
   MExprLowerNestedPatterns + MExprTypeCheck + MCoreCompileLang
 
   sem optJoinPath : String -> String -> String
@@ -44,7 +57,16 @@ lang Rtppl =
       sysChmodWriteAccessFile filepath;
       p.cleanup ()
     in
+    let ast = typeCheck ast in
+    let ast = lowerAll ast in
     compileMCore ast (mkEmptyHooks compileOCaml)
+
+  sem buildTaskDppl : String -> Expr -> ()
+  sem buildTaskDppl filepath =
+  | ast ->
+    let runtimeData = _rts () in
+    let ast = mexprCompile default runtimeData ast in
+    buildTaskMExpr filepath ast
 
   -- TODO(larshum, 2023-04-12): For now, we just use the mi compiler
   -- directly. When a task makes use of PPL constructs, we should use the
@@ -53,9 +75,7 @@ lang Rtppl =
   sem buildTaskExecutable options taskId =
   | taskAst ->
     let path = optJoinPath options.outputPath (nameGetStr taskId) in
-    let ast = typeCheck taskAst in
-    let ast = lowerAll ast in
-    buildTaskMExpr path ast
+    buildTaskDppl path taskAst
 
   sem buildRtppl : RtpplOptions -> CompileResult -> ()
   sem buildRtppl options =
@@ -68,9 +88,7 @@ mexpr
 
 use Rtppl in
 
--- TODO(larshum, 2023-04-12): Add a proper command-line interface for the RTPPL
--- compiler.
-let options = parseOptions argv in
+let options = parseOptions () in
 let content = readFile options.file in
 let program = parseRtpplExn options.file content in
 (if options.debugParse then

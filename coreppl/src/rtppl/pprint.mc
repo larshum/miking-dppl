@@ -223,6 +223,7 @@ lang RtpplPrettyPrint = RtpplAst
   | BoolRtpplType _ -> "Bool"
   | UnitRtpplType _ -> "Unit"
   | SeqRtpplType {ty = ty} -> join ["[", pprintRtpplType ty, "]"]
+  | DistRtpplType {ty = ty} -> join ["Dist(", pprintRtpplType ty, ")"]
   | AliasRtpplType {id = {v = id}, next = DirectRtpplTypeNoIdent _} -> nameGetStr id
   | AliasRtpplType {id = {v = id}, next = ApplicationRtpplTypeNoIdent {args = args}} ->
     join [nameGetStr id, "(", strJoin ", " (map pprintRtpplType args), ")"]

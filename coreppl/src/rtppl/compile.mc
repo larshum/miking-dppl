@@ -65,7 +65,7 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
       -- NOTE(larshum, 2023-04-11): All declared ports are added as parameters
       -- of the function. These parameters are strings containing an identifier
       -- for each port.
-      concat params (map compilePort (reverse ports))
+      concat (reverse params) (map compilePort (reverse ports))
     in
     let tyAnnot = foldl addParamTypeAnnot (compileRtpplType ty) params in
     let body = compileRtpplStmts retExpr stmts in
@@ -245,7 +245,13 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
         ty = _tyuk info, info = info }
     in
     let args = if null args then [uunit_] else map compileRtpplExpr args in
-    let funExpr = _var info id in
+    let funExpr =
+      -- TODO(larshum, 2023-04-12): Temporary hack to allow getting some
+      -- information from a distribution.
+      match nameGetStr id with "distEmpiricalNormConst" then
+        TmConst {val = CDistEmpiricalNormConst (), ty = _tyuk info, info = info}
+      else _var info id
+    in
     foldl appArg funExpr args
   | IdentPlusExprRtpplExpr {
       id = {v = id}, next = ProjectionRtpplExprNoIdent {id = {v = projId}},
@@ -366,6 +372,8 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
     _tyunit info
   | SeqRtpplType {ty = ty, info = info} ->
     TySeq {ty = compileRtpplType ty, info = info}
+  | DistRtpplType {ty = ty, info = info} ->
+    TyDist {ty = compileRtpplType ty, info = info}
   | AliasRtpplType {id = {v = id}, next = next, info = info} ->
     let args =
       match next with DirectRtpplTypeNoIdent _ then []
@@ -422,8 +430,8 @@ lang RtpplCompile =
     let runtime = symbolize (parseMCoreFile parseOpts runtimePath) in
     let runtimeSymEnv = addTopNames symEnvEmpty runtime in
     let rtpplExpr = symbolizeExpr runtimeSymEnv rtpplExpr in
-    let ast = bind_ runtime rtpplExpr in
-    let ast = eliminateDuplicateCode ast in
+    let ast = eliminateDuplicateCode (bind_ runtime rtpplExpr) in
+    let ast = typeCheck ast in
     liftLambdasWithSolutions ast
 
   -- NOTE(larshum, 2023-04-11): The AST of each task is produced by performing
@@ -444,7 +452,7 @@ lang RtpplCompile =
         let portNames = concat inputPorts outputPorts in
         let args = join
           [ liftedArgsTask, map str_ portNames
-          , map compileRtpplExpr args ]
+          , if null args then [var_ ""] else map compileRtpplExpr args ]
         in
         let taskRun = appSeq_ (nvar_ templateId) args in
         let liftedArgsInit = getCapturedTopLevelVars env rtpplRuntimeInitId in

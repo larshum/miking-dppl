@@ -159,6 +159,7 @@ prod Seq : RtpplType = "[" ty:RtpplType "]"
 prod Record : RtpplType =
   "{" (fields:{id:LIdent ":" ty:RtpplType} ("," fields:{id:LIdent ":" ty:RtpplType})*)? "}"
 prod right Function : RtpplType = from:RtpplType "->" to:RtpplType
+prod Dist : RtpplType = "Dist" "(" ty:RtpplType ")"
 
 -- NOTE(larshum, 2023-03-06): Yet another workaround to make grammar LL(1).
 prod Alias : RtpplType = id:UName next:RtpplTypeNoIdent
