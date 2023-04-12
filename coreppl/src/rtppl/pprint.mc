@@ -1,4 +1,4 @@
-include "rtppl.mc"
+include "ast.mc"
 
 lang RtpplPrettyPrint = RtpplAst
   sem pprintRtpplProgram : RtpplProgram -> String

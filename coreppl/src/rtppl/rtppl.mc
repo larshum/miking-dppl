@@ -1,6 +1,7 @@
 include "argparse.mc"
 include "ast.mc"
 include "compile.mc"
+include "pprint.mc"
 include "validate.mc"
 
 include "mexpr/shallow-patterns.mc"
@@ -8,7 +9,7 @@ include "mexpr/type-check.mc"
 include "ocaml/mcore.mc"
 
 lang Rtppl = 
-  RtpplCompile + RtpplValidate +
+  RtpplCompile + RtpplValidate + RtpplPrettyPrint +
   MExprLowerNestedPatterns + MExprTypeCheck + MCoreCompileLang
 
   sem optJoinPath : String -> String -> String
@@ -72,6 +73,9 @@ use Rtppl in
 let options = parseOptions argv in
 let content = readFile options.file in
 let program = parseRtpplExn options.file content in
+(if options.debugParse then
+  printLn (pprintRtpplProgram program)
+else ());
 validateRtpplProgram program;
 let result = compileRtpplProgram program in
 buildRtppl options result
