@@ -110,6 +110,16 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
       ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
       body = TmAssume { dist = compileRtpplExpr d, ty = _tyuk info, info = info },
       inexpr = uunit_, ty = _tyuk info, info = info }
+  | InferRtpplStmt {id = {v = id}, model = model, info = info} ->
+    TmLet {
+      ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmInfer {
+        method = BPF {particles = int_ 1000},
+        model = TmLam {
+          ident = nameNoSym "", tyAnnot = _tyuk info, tyIdent = _tyuk info,
+          body = compileRtpplExpr model, ty = _tyuk info, info = info },
+        ty = _tyuk info, info = info},
+      inexpr = uunit_, ty = _tyuk info, info = info }
   | LoopPlusStmtRtpplStmt {id = loopVar, loop = loopStmt, info = info} ->
     let _var = _var info in
     let loopId = nameSym "loopFn" in

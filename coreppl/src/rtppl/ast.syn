@@ -93,6 +93,7 @@ prod ActuatorOutput : RtpplPort = "actuator" "output" id:LIdent ":" ty:RtpplType
 prod Binding : RtpplStmt = "var" id:LName ":" ty:RtpplType "=" e:RtpplExpr
 prod Observe : RtpplStmt = "observe" e:RtpplExpr "~" d:RtpplExpr
 prod Assume : RtpplStmt = "assume" id:LName "~" d:RtpplExpr
+prod Infer : RtpplStmt = "infer" id:LName "<-" model:RtpplExpr
 prod Condition : RtpplStmt =
   "cond" id:LName? "if" cond:RtpplExpr "{" thn:RtpplStmt* "}" "else" "{" els:RtpplStmt* "}"
 prod LoopPlusStmt : RtpplStmt = "loop" id:LName? loop:RtpplLoopStmt

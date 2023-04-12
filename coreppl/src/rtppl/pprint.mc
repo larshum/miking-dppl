@@ -97,6 +97,8 @@ lang RtpplPrettyPrint = RtpplAst
     join [pprintIndent indent, "observe ", pprintRtpplExpr ii e, " ~ ", pprintRtpplExpr ii d]
   | AssumeRtpplStmt {id = {v = id}, d = d} ->
     join [pprintIndent indent, "assume ", nameGetStr id, " ~ ", pprintRtpplExpr indent d]
+  | InferRtpplStmt {id = {v = id}, model = model} ->
+    join [pprintIndent indent, "infer ", nameGetStr id, " -> ", pprintRtpplExpr indent model]
   | LoopPlusStmtRtpplStmt {id = loopVar, loop = loopTerm, info = info} ->
     let loopVarStr =
       match loopVar with Some {v = loopVarId} then
