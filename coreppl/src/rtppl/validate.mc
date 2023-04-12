@@ -1,6 +1,9 @@
-include "./rtppl.mc"
+include "ast.mc"
 
-lang RtpplValidate = RtpplAst
+-- NOTE(larshum, 2023-04-12): Validates the network defined in the RTPPL
+-- program. This includes ensuring that all ports are used, and that they are
+-- used correctly.
+lang RtpplValidateNetwork = RtpplAst
   syn PortId =
   | External Name
   | Internal (Name, String)
@@ -60,8 +63,8 @@ lang RtpplValidate = RtpplAst
 
   type Network = Map PortId PortState
 
-  sem validateRtpplProgram : RtpplProgram -> ()
-  sem validateRtpplProgram =
+  sem validateRtpplProgramNetwork : RtpplProgram -> ()
+  sem validateRtpplProgramNetwork =
   | ProgramRtpplProgram {tops = tops, main = main} ->
     let emptyPorts = {
       sensors = mapEmpty nameCmp,
@@ -249,11 +252,56 @@ lang RtpplValidate = RtpplAst
     ()
 end
 
-mexpr
+-- NOTE(larshum, 2023-04-12): Ensures that names of tasks and names of ports
+-- within each declaration are unique.
+lang RtpplValidateNames = RtpplAst
+  sem validateRtpplProgramNames : RtpplProgram -> ()
+  sem validateRtpplProgramNames =
+  | ProgramRtpplProgram {tops = tops, main = main} ->
+    distinctTaskNames main;
+    iter distinctPortNames tops
 
-use RtpplValidate in
+  -- Ensures that all declared tasks are given distinct names.
+  sem distinctTaskNames : RtpplMain -> ()
+  sem distinctTaskNames =
+  | MainRtpplMain {tasks = tasks} ->
+    let addUniqueName = lam acc. lam task.
+      match task with TaskRtpplTask {id = {v = id}, info = info} in
+      match mapLookup id acc with Some prevInfo then
+        errorSingle [prevInfo, info] "Multiple tasks have the same name"
+      else
+        mapInsert id info acc
+    in
+    foldl addUniqueName (mapEmpty nameCmp) tasks;
+    ()
 
-let input = get argv 1 in
-let content = readFile input in
-let program = parseRtpplExn input content in
-validateRtpplProgram program
+  sem distinctPortNames : RtpplTop -> ()
+  sem distinctPortNames =
+  | FunctionDefRtpplTop {id = {v = id}, body = {ports = ports}} ->
+    let addUniqueName = lam acc. lam port.
+      match portIdAndInfo port with (portId, info) in
+      match mapLookup portId acc with Some prevInfo then
+        errorSingle [prevInfo, info]
+          (join ["Multiple ports of task ", nameGetStr id, " are named ", portId])
+      else
+        mapInsert portId info acc
+    in
+    foldl addUniqueName (mapEmpty cmpString) ports;
+    ()
+  | _ -> ()
+
+  sem portIdAndInfo : RtpplPort -> (String, Info)
+  sem portIdAndInfo =
+  | InputRtpplPort {id = {v = id}, info = info}
+  | OutputRtpplPort {id = {v = id}, info = info}
+  | ActuatorOutputRtpplPort {id = {v = id}, info = info} ->
+    (id, info)
+end
+
+lang RtpplValidate = RtpplValidateNetwork + RtpplValidateNames
+  sem validateRtpplProgram : RtpplProgram -> ()
+  sem validateRtpplProgram =
+  | p & (ProgramRtpplProgram {tops = tops, main = main}) ->
+    validateRtpplProgramNames p;
+    validateRtpplProgramNetwork p
+end

@@ -21,9 +21,6 @@ include "string.mc"
 include "dist.mc"
 include "infer-method.mc"
 
--- TODO(larshum, 2022-10-28): Do this in separate compiler
-include "rtppl/ast.mc"
-
 -------------
 -- HELPERS --
 -------------
@@ -414,8 +411,6 @@ let mexprPPLKeywords = concat mexprKeywords pplKeywords
 lang MExprPPL =
   CorePPL + MExprAst + MExprPrettyPrint + MExprEq + MExprSym +
   MExprTypeCheck + MExprTypeLift + MExprArity
-
-  + RTPPLAst -- TODO(larshum, 2022-10-28): Do this in separate compiler
 
   sem mexprPPLToString =
   | expr -> exprToStringKeywords mexprPPLKeywords expr

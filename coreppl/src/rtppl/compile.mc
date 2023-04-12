@@ -1,11 +1,15 @@
-include "rtppl.mc"
+include "ast.mc"
+include "../parser.mc"
+include "../src-location.mc"
 
--- NOTE(larshum, 2023-04-05): Extending from DPPL
 include "mexpr/ast.mc"
 include "mexpr/ast-builder.mc"
-include "../../parser.mc"
+include "mexpr/duplicate-code-elimination.mc"
+include "mexpr/extract.mc"
+include "mexpr/lamlift.mc"
+include "mexpr/utils.mc"
 
-lang RtpplCompile = RtpplAst + DPPLParser + MExprAst
+lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
   sem _tyuk : Info -> Type
   sem _tyuk =
   | info -> TyUnknown {info = info}
@@ -18,12 +22,6 @@ lang RtpplCompile = RtpplAst + DPPLParser + MExprAst
   sem _var info =
   | id -> TmVar {ident = id, ty = _tyuk info, info = info, frozen = false}
 
-  sem compileRtpplProgram : RtpplProgram -> Expr
-  sem compileRtpplProgram =
-  | ProgramRtpplProgram p ->
-    let tops = map compileRtpplTop p.tops in
-    bindall_ tops
-
   sem compileRtpplTop : RtpplTop -> Expr
   sem compileRtpplTop =
   | SensorRtpplTop {info = info} | ActuatorRtpplTop {info = info} ->
@@ -32,14 +30,15 @@ lang RtpplCompile = RtpplAst + DPPLParser + MExprAst
     let ty = compileRtpplType ty in
     let body = compileRtpplExpr e in
     TmLet {
-      ident = id, tyAnnot = ty, tyBody = ty, body = body,
+      ident = id, tyAnnot = _tyuk info, tyBody = ty, body = body,
       inexpr = uunit_, ty = _tyuk info, info = info }
   | TypeAliasRtpplTop {id = {v = id}, ty = ty, info = info} ->
     TmType {
       ident = id, params = [], tyIdent = compileRtpplType ty,
       inexpr = uunit_, ty = _tyuk info, info = info }
   | FunctionDefRtpplTop {id = {v = id}, params = params, ty = ty,
-                         body = {stmts = stmts, ret = ret}, info = info} ->
+                         body = {ports = ports, stmts = stmts, ret = ret},
+                         info = info} ->
     let compileParam = lam param.
       match param with {id = {v = id, i = info}, ty = ty} in
       (id, compileRtpplType ty, info)
@@ -51,7 +50,7 @@ lang RtpplCompile = RtpplAst + DPPLParser + MExprAst
     let addParamToBody = lam acc. lam param.
       match param with (id, paramTy, info) in
       TmLam {
-        ident = id, tyAnnot = paramTy, tyIdent = paramTy, body = acc,
+        ident = id, tyAnnot = _tyuk info, tyIdent = paramTy, body = acc,
         ty = TyArrow {from = paramTy, to = tyTm acc, info = info}, info = info }
     in
     let retExpr =
@@ -59,8 +58,14 @@ lang RtpplCompile = RtpplAst + DPPLParser + MExprAst
       else TmRecord {bindings = mapEmpty cmpSID, ty = _tyunit info, info = info}
     in
     let params =
-      if null params then [(nameNoSym "", _tyunit info, info)]
-      else map compileParam params
+      let params =
+        if null params then [(nameNoSym "", _tyunit info, info)]
+        else map compileParam params
+      in
+      -- NOTE(larshum, 2023-04-11): All declared ports are added as parameters
+      -- of the function. These parameters are strings containing an identifier
+      -- for each port.
+      concat params (map compilePort (reverse ports))
     in
     let tyAnnot = foldl addParamTypeAnnot (compileRtpplType ty) params in
     let body = compileRtpplStmts retExpr stmts in
@@ -68,6 +73,13 @@ lang RtpplCompile = RtpplAst + DPPLParser + MExprAst
       ident = id, tyAnnot = tyAnnot, tyBody = tyAnnot,
       body = foldl addParamToBody body params, inexpr = uunit_,
       ty = _tyuk info, info = info }
+
+  sem compilePort : RtpplPort -> (Name, Type, Info)
+  sem compilePort =
+  | InputRtpplPort {id = {v = id}, info = info}
+  | OutputRtpplPort {id = {v = id}, info = info}
+  | ActuatorOutputRtpplPort {id = {v = id}, info = info} ->
+    (nameNoSym id, TySeq {ty = TyChar {info = info}, info = info}, info)
 
   sem compileRtpplStmts : Expr -> [RtpplStmt] -> Expr
   sem compileRtpplStmts inexpr =
@@ -81,10 +93,10 @@ lang RtpplCompile = RtpplAst + DPPLParser + MExprAst
   sem compileRtpplStmt : RtpplStmt -> Expr
   sem compileRtpplStmt =
   | BindingRtpplStmt {id = {v = id}, ty = ty, e = e, info = info} ->
-    let tyAnnot = compileRtpplType ty in
+    let tyBody = compileRtpplType ty in
     let body = compileRtpplExpr e in
     TmLet {
-      ident = id, tyAnnot = tyAnnot, tyBody = tyAnnot, body = body,
+      ident = id, tyAnnot = _tyuk info, tyBody = tyBody, body = body,
       inexpr = uunit_, ty = _tyuk info, info = info }
   | ObserveRtpplStmt {e = e, d = d, info = info} ->
     let obsExpr = TmObserve {
@@ -100,12 +112,14 @@ lang RtpplCompile = RtpplAst + DPPLParser + MExprAst
       inexpr = uunit_, ty = _tyuk info, info = info }
   | LoopPlusStmtRtpplStmt {id = loopVar, loop = loopStmt, info = info} ->
     let _var = _var info in
-    let loopId = nameSym "loop" in
+    let loopId = nameSym "loopFn" in
     let loopVarId =
       match loopVar with Some {v = loopVarId} then loopVarId
       else nameNoSym ""
     in
-    let tailExpr = _var loopVarId in
+    let tailExpr =
+      match loopVar with Some {v = loopVarId}then _var loopVarId
+      else uunit_ in
     match
       match loopStmt with ForInRtpplLoopStmt {id = {v = id}, e = e, body = body} then
         let tailId = nameSym "t" in
@@ -204,7 +218,7 @@ lang RtpplCompile = RtpplAst + DPPLParser + MExprAst
     let args = if null args then [uunit_] else map compileRtpplExpr args in
     let funCallExpr = foldl appArg (_var info id) args in
     TmLet {
-      ident = nameNoSym "", tyAnnot = _tyunit info, tyBody = _tyunit info,
+      ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyunit info,
       body = funCallExpr, inexpr = uunit_, ty = _tyuk info, info = info }
 
   sem compileRtpplExpr : RtpplExpr -> Expr
@@ -362,13 +376,154 @@ lang RtpplCompile = RtpplAst + DPPLParser + MExprAst
     TyArrow {from = compileRtpplType from, to = compileRtpplType to, info = info}
 end
 
-mexpr
+lang RtpplCompile =
+  RtpplAst + RtpplDPPLCompile + MExprLambdaLift + MExprExtract +
+  MExprEliminateDuplicateCode + MExprFindSym
 
-use RtpplCompile in
+  type Env = {
+    ast : Expr,
+    llSolutions : Map Name (Map Name Type),
+    ports : Map Name ([RtpplPort], [RtpplPort]),
+    topVarEnv : Map String Name
+  }
 
-let input = get argv 1 in
-let content = readFile input in
-let program = parseRtpplExn input content in
-let ast = compileRtpplProgram program in
-let ast = symbolizeAllowFree ast in
-print (expr2str ast)
+  type CompileResult = {
+    tasks : Map Name Expr,
+    ports : [String]
+  }
+
+  -- NOTE(larshum, 2023-04-11): This function produces a string uniquely
+  -- identifying a port belongning to a specific task.
+  sem getPortIdentifier : Name -> RtpplPort -> String
+  sem getPortIdentifier taskId =
+  | InputRtpplPort {id = {v = id}}
+  | OutputRtpplPort {id = {v = id}}
+  | ActuatorOutputRtpplPort {id = {v = id}} ->
+    join [nameGetStr taskId, "-", id]
+
+  sem compileRtpplToExpr : [RtpplTop] -> (Map Name (Map Name Type), Expr)
+  sem compileRtpplToExpr =
+  | tops ->
+    let rtpplExpr = bindall_ (map compileRtpplTop tops) in
+    let runtimePath = concat corepplSrcLoc "/rtppl/rtppl-runtime.mc" in
+    let parseOpts =
+      {defaultBootParserParseMCoreFileArg with keepUtests = false,
+                                               eliminateDeadCode = false} in
+    let runtime = symbolize (parseMCoreFile parseOpts runtimePath) in
+    let runtimeSymEnv = addTopNames symEnvEmpty runtime in
+    let rtpplExpr = symbolizeExpr runtimeSymEnv rtpplExpr in
+    let ast = bind_ runtime rtpplExpr in
+    let ast = eliminateDuplicateCode ast in
+    liftLambdasWithSolutions ast
+
+  -- NOTE(larshum, 2023-04-11): The AST of each task is produced by performing
+  -- extraction from a common AST containing all definitions from the RTPPL
+  -- program combined with the shared runtime.
+  sem compileTask : Env -> CompileResult -> RtpplTask -> CompileResult
+  sem compileTask env acc =
+  | TaskRtpplTask {id = {v = id}, templateId = {v = tid}, args = args,
+                   info = info} ->
+    -- TODO(larshum, 2023-04-11): This only works assuming the name of the
+    -- function used as a template is distinct from names used in the runtime.
+    match findNamesOfStrings [nameGetStr tid, "rtpplRuntimeInit"] env.ast
+    with [Some templateId, Some rtpplRuntimeInitId] then
+      match mapLookup tid env.ports with Some (inports, outports) then
+        let liftedArgsTask = getCapturedTopLevelVars env templateId in
+        let inputPorts = map (getPortIdentifier id) inports in
+        let outputPorts = map (getPortIdentifier id) outports in
+        let portNames = concat inputPorts outputPorts in
+        let args = join
+          [ liftedArgsTask, map str_ portNames
+          , map compileRtpplExpr args ]
+        in
+        let taskRun = appSeq_ (nvar_ templateId) args in
+        let liftedArgsInit = getCapturedTopLevelVars env rtpplRuntimeInitId in
+        let initArgs =
+          concat
+            liftedArgsInit
+            [ seq_ (map str_ inputPorts)
+            , seq_ (map str_ outputPorts)
+            , ulam_ "" taskRun ]
+        in
+        let tailExpr = appSeq_ (nvar_ rtpplRuntimeInitId) initArgs in
+        let ast =
+          extractAst (identifiersInExpr (setEmpty nameCmp) tailExpr) env.ast
+        in
+        {acc with tasks = mapInsert id (bind_ ast tailExpr) acc.tasks,
+                  ports = concat acc.ports portNames}
+      else
+        errorSingle [info]
+          "Task is instantiated from definition with no port declarations"
+    else
+      errorSingle [info] "Internal error when compiling task definition"
+
+  sem identifiersInExpr : Set Name -> Expr -> Set Name
+  sem identifiersInExpr acc =
+  | TmVar {ident = ident} ->
+    setInsert ident acc
+  | t ->
+    sfold_Expr_Expr identifiersInExpr acc t
+
+  sem getCapturedTopLevelVars : Env -> Name -> [Expr]
+  sem getCapturedTopLevelVars env =
+  | id ->
+    -- NOTE(larshum, 2023-04-12): We find the top-level names that
+    -- correspond to the names of the captured parameters.
+    match mapLookup id env.llSolutions with Some argMap then
+      let argIds = mapKeys argMap in
+      map
+        (lam id.
+          let s = nameGetStr id in
+          match mapLookup s env.topVarEnv with Some topLevelId then
+            nvar_ topLevelId
+          else
+            let msg = join [
+              "Could not find top-level binding of captured parameter ",
+              nameGetStr id
+            ] in
+            error msg)
+        argIds
+    else error "Could not find lambda lifting solution for task"
+
+  -- TODO(larshum, 2023-04-11): How to handle the parameters passed to main?
+  -- TODO(larshum, 2023-04-11): What do we generate for the connections?
+  sem compileTasks : Env -> RtpplMain -> CompileResult
+  sem compileTasks env =
+  | MainRtpplMain {params = [], tasks = tasks, connections = connections} ->
+    let emptyResult = { tasks = mapEmpty nameCmp, ports = [] } in
+    foldl (compileTask env) emptyResult tasks
+
+  sem collectPortsPerTop : Map Name ([RtpplPort], [RtpplPort]) -> RtpplTop ->
+                           Map Name ([RtpplPort], [RtpplPort])
+  sem collectPortsPerTop portMap =
+  | FunctionDefRtpplTop {id = {v = id}, body = {ports = ![] & ports}} ->
+    let partition = partitionPortsByDirection ports in
+    mapInsert id partition portMap
+  | _ ->
+    portMap
+
+  sem partitionPortsByDirection : [RtpplPort] -> ([RtpplPort], [RtpplPort])
+  sem partitionPortsByDirection =
+  | ports ->
+    let isInputPort = lam port.
+      match port with InputRtpplPort _ then true
+      else false
+    in
+    partition isInputPort ports
+
+  -- NOTE(larshum, 2023-04-11): One RTPPL program is compiled to multiple
+  -- Expr's, each of which correspond to a task declared in the main section of
+  -- an RTPPL program.
+  sem compileRtpplProgram : RtpplProgram -> CompileResult
+  sem compileRtpplProgram =
+  | ProgramRtpplProgram p ->
+    match compileRtpplToExpr p.tops with (llSolutions, coreExpr) in
+    let ports = foldl collectPortsPerTop (mapEmpty nameCmp) p.tops in
+    let env = {
+      ast = coreExpr,
+      llSolutions = llSolutions,
+      ports = foldl collectPortsPerTop (mapEmpty nameCmp) p.tops,
+      topVarEnv = (addTopNames symEnvEmpty coreExpr).varEnv
+    } in
+    compileTasks env p.main
+end

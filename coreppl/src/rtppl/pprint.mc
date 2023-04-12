@@ -233,12 +233,3 @@ lang RtpplPrettyPrint = RtpplAst
   | FunctionRtpplType {from = from, to = to} ->
     join ["(", pprintRtpplType from, ") -> ", pprintRtpplType to]
 end
-
-mexpr
-
-use RtpplPrettyPrint in
-
-let input = get argv 1 in
-let content = readFile input in
-let program = parseRtpplExn input content in
-printLn (pprintRtpplProgram program)

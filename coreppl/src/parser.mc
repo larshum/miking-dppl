@@ -7,9 +7,6 @@ include "coreppl.mc"
 include "pgm.mc"
 include "inference-common/smc.mc"
 
--- TODO(larshum, 2022-10-28): Do this in separate compiler
-include "rtppl/parser.mc"
-
 -- Include the inference method definition definition files.
 include "coreppl-to-mexpr/smc-apf/method.mc"
 include "coreppl-to-mexpr/smc-bpf/method.mc"
@@ -22,7 +19,6 @@ include "coreppl-to-mexpr/pmcmc-pimh/method.mc"
 lang DPPLParser =
   BootParser + MExprPrettyPrint + MExprPPL + Resample +
   ProbabilisticGraphicalModel + KeywordMaker +
-  RTPPLParser + -- TODO(larshum, 2022-10-28): Do this in separate compiler
 
   ImportanceSamplingMethod + BPFMethod + APFMethod +
   LightweightMCMCMethod  + NaiveMCMCMethod + TraceMCMCMethod +
@@ -119,9 +115,6 @@ let builtin = use MExprPPL in concat
   , ("distEmpiricalAcceptRate", CDistEmpiricalAcceptRate ())
   , ("distCombineIndependent", CDistCombineIndependent ())
   ] builtin
-
--- TODO(larshum, 2022-10-28): Do this in separate compiler.
-let pplKeywords = concat pplKeywords rtpplKeywords
 
 let parseMCorePPLFile = lam filename.
   use DPPLParser in

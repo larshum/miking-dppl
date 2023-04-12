@@ -14,9 +14,6 @@ include "coreppl-to-mexpr/backcompat.mc"
 include "coreppl-to-mexpr/compile.mc"
 include "coreppl-to-rootppl/compile.mc"
 
--- TODO(larshum, 2022-10-28): do this somewhere else
-include "rtppl/transform.mc"
-
 include "option.mc"
 include "string.mc"
 include "common.mc"
@@ -26,8 +23,7 @@ include "mexpr/utils.mc"
 
 lang CPPLLang =
   MExprAst + DPPLExtract + MExprCompile + TransformDist +
-  MExprEliminateDuplicateCode + MExprSubstitute + CPPLBackcompat +
-  RTPPLTransform -- TODO(larshum, 2022-10-28): Do this in separate compiler
+  MExprEliminateDuplicateCode + MExprSubstitute + CPPLBackcompat
 end
 
 mexpr
@@ -46,10 +42,6 @@ match result with ParseOK r then
     -- Read and parse the file
     let filename = head r.strings in
     let ast = parseMCorePPLFile filename in
-
-    -- TODO(larshum, 2022-10-28): Do the real-time transformations in a
-    -- separate "compiler".
-    let ast = replaceSdelay ast in
 
     -- Load the runtimes used in the provided AST, and collect identifiers of
     -- common methods within the runtimes.

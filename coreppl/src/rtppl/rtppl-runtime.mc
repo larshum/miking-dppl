@@ -1,23 +1,29 @@
 include "bool.mc"
+include "map.mc"
 include "ext/rtppl-ext.mc"
 
 let nanosPerSec = 1000000000
 let millisPerSec = 1000
 let millisPerNano = divi nanosPerSec millisPerSec
 
-let millisToTimespec : Int -> (Int, Int) =
+let millisToTimespec : Int -> Timespec =
   lam millis.
   let s = divi millis millisPerSec in
   let ms = modi millis millisPerSec in
   let ns = muli ms millisPerNano in
   (s, ns)
 
-let timespecToMillis : (Int, Int) -> Int =
+let timespecToMillis : Timespec -> Int =
   lam ts.
   match ts with (s, ns) in
   addi (muli s millisPerSec) (divi ns millisPerNano)
 
-let addTimespec : (Int, Int) -> (Int, Int) -> (Int, Int) =
+let timespecToNanos : Timespec -> Int =
+  lam ts.
+  match ts with (s, ns) in
+  addi (muli s nanosPerSec) ns
+
+let addTimespec : Timespec -> Timespec -> Timespec =
   lam lhs. lam rhs.
   match (lhs, rhs) with ((ls, lns), (rs, rns)) in
   let s = addi ls rs in
@@ -26,7 +32,7 @@ let addTimespec : (Int, Int) -> (Int, Int) -> (Int, Int) =
     (addi s 1, subi ns nanosPerSec)
   else (s, ns)
 
-let diffTimespec : (Int, Int) -> (Int, Int) -> (Int, Int) =
+let diffTimespec : Timespec -> Timespec -> Timespec =
   lam lhs. lam rhs.
   match (lhs, rhs) with ((ls, lns), (rs, rns)) in
   let s = subi ls rs in
@@ -35,7 +41,7 @@ let diffTimespec : (Int, Int) -> (Int, Int) -> (Int, Int) =
   else if lti ns 0 then (subi s 1, addi ns nanosPerSec)
   else (s, ns)
 
-let cmpTimespec : (Int, Int) -> (Int, Int) -> Int =
+let cmpTimespec : Timespec -> Timespec -> Int =
   lam lhs. lam rhs.
   match (lhs, rhs) with ((ls, lns), (rs, rns)) in
   if gti ls rs then 1
@@ -44,18 +50,17 @@ let cmpTimespec : (Int, Int) -> (Int, Int) -> Int =
   else if lti lns rns then negi 1
   else 0
 
-let startTime : Ref (Int, Int) = ref (clockGetTime ())
+let logicalTime : Ref Timespec = ref (clockGetTime ())
 
 -- Delays execution by a given amount of delay, in milliseconds, given a
 -- reference containing the start time of the current timing point. The result
 -- is an integer denoting the number of milliseconds of overrun.
-let delayBy : Ref (Int, Int) -> Int -> Int =
-  lam startTime. lam delay.
+let delayBy : Ref Timespec -> Int -> Int = lam logicalTime. lam delay.
   let oldPriority = setMaxPriority () in
   let intervalTime = millisToTimespec delay in
   let endTime = clockGetTime () in
-  let elapsedTime = diffTimespec endTime (deref startTime) in
-  let waitTime = addTimespec (deref startTime) intervalTime in
+  let elapsedTime = diffTimespec endTime (deref logicalTime) in
+  let waitTime = addTimespec (deref logicalTime) intervalTime in
   let overrun =
     let c = cmpTimespec intervalTime elapsedTime in
     if gti c 0 then clockNanosleep waitTime; 0
@@ -64,9 +69,84 @@ let delayBy : Ref (Int, Int) -> Int -> Int =
       timespecToMillis elapsedTime
     else 0
   in
-  modref startTime waitTime;
+  modref logicalTime waitTime;
   setPriority oldPriority;
   overrun
+
+type TSV a = (Int, a)
+
+let tsvTimestamp : all a. TSV a -> Int = lam tsv. tsv.0
+let tsvValue : all a. TSV a -> a = lam tsv. tsv.1
+
+-- TODO(larshum, 2023-04-11): At compile-time, we know exactly which ports we
+-- have, so we could improve performance by generating code for each declared
+-- port instead of placing them in a map. However, this approach is much
+-- simpler, so I will use it for now.
+let inputSequences : Ref (Map String [TSV Float]) = ref (mapEmpty cmpString)
+
+-- Updates the state of all input sequences by clearing the old values and
+-- inserting new ones. Before the input sequences are made available to the
+-- RTPPL code, they are transformed such that all timestamps associated with
+-- inputs become relative to the current logical time.
+let updateInputSequences = lam.
+  let t0 = timespecToNanos (deref logicalTime) in
+  let toRelativeTimestamp = lam tsv.
+    match tsv with (ts, value) in
+    (subi t0 ts, value)
+  in
+  modref inputSequences
+    (mapMapWithKey
+      (lam id. lam. map toRelativeTimestamp (externalReadFloatPipe id))
+      (deref inputSequences))
+
+let sdelay : Int -> Int = lam delay.
+  let overrun = delayBy logicalTime delay in
+  updateInputSequences ();
+  overrun
+
+-- TODO(larshum, 2023-04-11): Add support for payloads other than
+-- floating-point numbers.
+let readPort : String -> [(Timespec, Float)] = lam id.
+  match mapLookup id (deref inputSequences) with Some payload then
+    payload
+  else error (join ["Could not find inputs for port ", id])
+
+let writePort : String -> Float -> Int = lam id. lam msg. lam offset.
+  let intervalTime = millisToTimespec offset in
+  let actuationTime = addTimespec (deref logicalTime) intervalTime in
+  -- TODO(larshum, 2023-04-11): This function will open and close a FIFO queue
+  -- every time it is called, which may be very expensive. Therefore, we should
+  -- open them at startup and then store them until shutdown.
+  externalWriteFloatPipe id msg actuationTime
+
+let rtpplRuntimeInit : all a. [String] -> [String] -> (() -> a) -> a =
+  lam inputs. lam outputs. lam cont.
+
+  -- Initialize the input sequences used to buffer the results available for
+  -- reading at a certain logical time.
+  let inputSeqs =
+    foldl
+      (lam acc. lam inId.
+        mapInsert inId [] acc)
+      (deref inputSequences) inputs
+  in
+  modref inputSequences inputSeqs;
+
+  -- TODO(larshum, 2023-04-11): Run a synchronization pass first, where the
+  -- tasks wait for each other to start up. After this pass, we set the current
+  -- logical time to whatever we end up with.
+  modref logicalTime (clockGetTime ());
+
+  -- Fill all sequences with currently available inputs before handing over
+  -- control to the RTPPL code.
+  -- TODO(larshum, 2023-04-11): Should we empty the FIFOs here instead? As we
+  -- don't expect input from before our first observation.
+  updateInputSequences ();
+
+  cont ()
+
+-- Rough shape of what a call to this function may look like:
+-- rtpplRuntimeInit ["a-in1"] ["a-out1"] (lam. addX "a-in1" "a-out1" 1.0)
 
 mexpr
 
