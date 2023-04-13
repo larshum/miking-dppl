@@ -81,13 +81,13 @@ let delayBy : Ref Timespec -> Int -> Int = lam logicalTime. lam delay.
 
 type TSV a = (Timespec, a)
 
--- TODO(larshum, 2023-04-13): These functions involve mutability which is not
--- supported inside DPPL models.
-let tsvTimestamp : all a. TSV a -> Int = lam tsv.
+-- TODO(larshum, 2023-04-13): These functions involve mutability (deref) which
+-- is not supported inside DPPL models.
+let tsvTimestamp : TSV Unknown -> Int = lam tsv.
   let lt = deref logicalTime in
   timespecToNanos (diffTimespec tsv.0 lt)
-let tsvValue : all a. TSV a -> a = lam tsv. tsv.1
-let tsvCreate : all a. Int -> a -> TSV a = lam offset. lam value.
+let tsvValue : TSV Unknown -> Unknown = lam tsv. tsv.1
+let tsvCreate : Int -> Unknown -> TSV Unknown = lam offset. lam value.
   let lt = deref logicalTime in
   (addTimespec lt (nanosToTimespec offset), value)
 
