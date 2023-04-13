@@ -54,8 +54,13 @@ extern "C" {
 
     out = caml_alloc(input_seq.size(), 0);
     for (size_t i = 0; i < input_seq.size(); i++) {
+      int64_t sec = input_seq[i].ts / (int64_t)1e9;
+      int64_t nsec = input_seq[i].ts % (int64_t)1e9;
+      value timespec = caml_alloc(2, 0);
+      Store_field(timespec, 0, Val_long(sec));
+      Store_field(timespec, 1, Val_long(nsec));
       value tsv = caml_alloc(2, 0);
-      Store_field(tsv, 0, Val_long(input_seq[i].ts));
+      Store_field(tsv, 0, timespec);
       Store_field(tsv, 1, caml_copy_double(input_seq[i].val));
       Store_field(out, i, tsv);
     }
@@ -69,7 +74,7 @@ extern "C" {
     float_data_t message;
     int64_t sec = Long_val(Field(ts, 0));
     int64_t nsec = Long_val(Field(ts, 1));
-    message.ts = sec * 1000000000 + nsec;
+    message.ts = sec * (int64_t)1e9 + nsec;
     message.val = Double_val(msg);
     write(fd, (void*)&message, sizeof(float_data_t));
     close(fd);

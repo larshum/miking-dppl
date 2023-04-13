@@ -13,6 +13,12 @@ let millisToTimespec : Int -> Timespec =
   let ns = muli ms millisPerNano in
   (s, ns)
 
+let nanosToTimespec : Int -> Timespec =
+  lam nanos.
+  let s = divi nanos nanosPerSec in
+  let ns = modi nanos nanosPerSec in
+  (s, ns)
+
 let timespecToMillis : Timespec -> Int =
   lam ts.
   match ts with (s, ns) in
@@ -73,10 +79,17 @@ let delayBy : Ref Timespec -> Int -> Int = lam logicalTime. lam delay.
   setPriority oldPriority;
   overrun
 
-type TSV a = (Int, a)
+type TSV a = (Timespec, a)
 
-let tsvTimestamp : all a. TSV a -> Int = lam tsv. tsv.0
+-- TODO(larshum, 2023-04-13): These functions involve mutability which is not
+-- supported inside DPPL models.
+let tsvTimestamp : all a. TSV a -> Int = lam tsv.
+  let lt = deref logicalTime in
+  timespecToNanos (diffTimespec tsv.0 lt)
 let tsvValue : all a. TSV a -> a = lam tsv. tsv.1
+let tsvCreate : all a. Int -> a -> TSV a = lam offset. lam value.
+  let lt = deref logicalTime in
+  (addTimespec lt (nanosToTimespec offset), value)
 
 -- TODO(larshum, 2023-04-11): At compile-time, we know exactly which ports we
 -- have, so we could improve performance by generating code for each declared
@@ -89,14 +102,9 @@ let inputSequences : Ref (Map String [TSV Float]) = ref (mapEmpty cmpString)
 -- RTPPL code, they are transformed such that all timestamps associated with
 -- inputs become relative to the current logical time.
 let updateInputSequences = lam.
-  let t0 = timespecToNanos (deref logicalTime) in
-  let toRelativeTimestamp = lam tsv.
-    match tsv with (ts, value) in
-    (subi t0 ts, value)
-  in
   modref inputSequences
     (mapMapWithKey
-      (lam id. lam. map toRelativeTimestamp (externalReadFloatPipe id))
+      (lam id. lam. externalReadFloatPipe id)
       (deref inputSequences))
 
 let sdelay : Int -> Int = lam delay.
