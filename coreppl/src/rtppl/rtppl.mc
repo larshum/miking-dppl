@@ -6,6 +6,7 @@ include "validate.mc"
 
 include "../dppl-arg.mc"
 include "../infer-method.mc"
+include "../parser.mc"
 include "../coreppl-to-mexpr/compile.mc"
 include "../coreppl-to-mexpr/runtimes.mc"
 
@@ -22,7 +23,7 @@ let _rts = lam.
 
 lang Rtppl = 
   RtpplCompile + RtpplValidate + RtpplPrettyPrint +
-  MExprCompile +
+  MExprCompile + DPPLParser +
   MExprLowerNestedPatterns + MExprTypeCheck + MCoreCompileLang
 
   sem optJoinPath : String -> String -> String
@@ -96,4 +97,12 @@ let program = parseRtpplExn options.file content in
 else ());
 validateRtpplProgram program;
 let result = compileRtpplProgram program in
+(if options.debugCompile then
+  mapMapWithKey
+    (lam id. lam ast.
+      printLn (join ["Task ", nameGetStr id, ":"]);
+      printLn (expr2str ast))
+    result.tasks;
+  ()
+else ());
 buildRtppl options result
