@@ -22,6 +22,10 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
   sem _var info =
   | id -> TmVar {ident = id, ty = _tyuk info, info = info, frozen = false}
 
+  sem _rtpplEscapeName : Name -> Name
+  sem _rtpplEscapeName =
+  | id -> nameSetStr id (concat "RTPPL_" (nameGetStr id))
+
   sem compileRtpplTop : RtpplTop -> Expr
   sem compileRtpplTop =
   | SensorRtpplTop {info = info} | ActuatorRtpplTop {info = info} ->
@@ -52,6 +56,14 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
       TmLam {
         ident = id, tyAnnot = _tyuk info, tyIdent = paramTy, body = acc,
         ty = TyArrow {from = paramTy, to = tyTm acc, info = info}, info = info }
+    in
+    -- NOTE(larshum, 2023-04-13): We change the name of function definitions
+    -- with ports to ensure they are distinct from anything introduced by the
+    -- runtime. Functions with ports may only be used from main, so we make
+    -- sure to escape their names there as well.
+    let id =
+      if null ports then id
+      else _rtpplEscapeName id
     in
     let retExpr =
       match ret with Some e then compileRtpplExpr e
@@ -443,7 +455,8 @@ lang RtpplCompile =
                    info = info} ->
     -- TODO(larshum, 2023-04-11): This only works assuming the name of the
     -- function used as a template is distinct from names used in the runtime.
-    match findNamesOfStrings [nameGetStr tid, "rtpplRuntimeInit"] env.ast
+    let templateName = _rtpplEscapeName tid in
+    match findNamesOfStrings [nameGetStr templateName, "rtpplRuntimeInit"] env.ast
     with [Some templateId, Some rtpplRuntimeInitId] then
       match mapLookup tid env.ports with Some (inports, outports) then
         let liftedArgsTask = getCapturedTopLevelVars env templateId in
