@@ -76,10 +76,6 @@ lang RtpplValidateNetwork = RtpplAst
 
   sem collectDeclaredPorts : PortDecls -> RtpplTop -> PortDecls
   sem collectDeclaredPorts acc =
-  | SensorRtpplTop {id = {v = id}, info = info} ->
-    {acc with sensors = mapInsert id info acc.sensors}
-  | ActuatorRtpplTop {id = {v = id}, info = info} ->
-    {acc with actuators = mapInsert id info acc.actuators}
   | FunctionDefRtpplTop {id = {v = id}, body = {ports = declaredPorts}} ->
     let emptyPortConfig = mapEmpty cmpString in
     let functionDecls = foldl addPortToConfig emptyPortConfig declaredPorts in
@@ -103,9 +99,18 @@ lang RtpplValidateNetwork = RtpplAst
   | ActuatorOutputRtpplPort {id = {v = id}, info = i1} ->
     insertPortErr id (UnusedTaskActuatorOutput i1) config
 
+  sem addSensorOrActuatorPort : PortDecls -> RtpplExt -> PortDecls
+  sem addSensorOrActuatorPort acc =
+  | SensorRtpplExt {id = {v = id}, info = info} ->
+    {acc with sensors = mapInsert id info acc.sensors}
+  | ActuatorRtpplExt {id = {v = id}, info = info} ->
+    {acc with actuators = mapInsert id info acc.actuators}
+
   sem validateNetwork : PortDecls -> RtpplMain -> ()
   sem validateNetwork declPorts =
-  | MainRtpplMain {tasks = tasks, connections = connections} ->
+  | MainRtpplMain {ext = ext, tasks = tasks, connections = connections} ->
+    let declPorts = foldl addSensorOrActuatorPort declPorts ext in
+
     -- Insert port states for all sensors and actuators.
     let network = mapEmpty cmpPortId in
     let network = mapFoldWithKey insertSensor network declPorts.sensors in

@@ -18,6 +18,7 @@ type RtpplConst
 type RtpplPort
 
 type RtpplMain
+type RtpplExt
 type RtpplTask
 type RtpplConnection
 type RtpplPortSpec
@@ -78,8 +79,6 @@ token {fragment = RTPPLLineCommentParser,}
 
 prod Program : RtpplProgram = tops:RtpplTop* main:RtpplMain
 
-prod Sensor : RtpplTop = "sensor" id:LName ":" ty:RtpplType
-prod Actuator : RtpplTop = "actuator" id:LName ":" ty:RtpplType
 prod Constant : RtpplTop = "const" id:LName ":" ty:RtpplType "=" e:RtpplExpr
 prod TypeAlias : RtpplTop = "type" id:UName "=" ty:RtpplType
 prod FunctionDef : RtpplTop =
@@ -150,7 +149,10 @@ precedence {
 
 prod Main : RtpplMain =
   "main" "(" (params:{id:LName ":" ty:RtpplType} ("," params:{id:LName ":" ty:RtpplType})*)? ")"
-  "{" tasks:RtpplTask* connections:RtpplConnection* "}"
+  "{" ext:RtpplExt* tasks:RtpplTask* connections:RtpplConnection* "}"
+
+prod Sensor : RtpplExt = "sensor" id:LName ":" ty:RtpplType
+prod Actuator : RtpplExt = "actuator" id:LName ":" ty:RtpplType
 
 prod Task : RtpplTask = "task" id:LName "=" templateId:LName "(" (args:RtpplExpr ("," args:RtpplExpr)*)? ")"
 prod Connection : RtpplConnection = from:RtpplPortSpec "->" to:RtpplPortSpec

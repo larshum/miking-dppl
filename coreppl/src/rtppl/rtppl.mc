@@ -29,16 +29,16 @@ lang RtpplJson = RtpplAst
     tasks : [Name]
   }
 
-  sem collectRtpplTopNames : RtpplNames -> RtpplTop -> RtpplNames
-  sem collectRtpplTopNames acc =
-  | SensorRtpplTop {id = {v = id}} ->
+  sem collectSensorOrActuatorName : RtpplNames -> RtpplExt -> RtpplNames
+  sem collectSensorOrActuatorName acc =
+  | SensorRtpplExt {id = {v = id}} ->
     {acc with sensors = cons id acc.sensors}
-  | ActuatorRtpplTop {id = {v = id}} ->
+  | ActuatorRtpplExt {id = {v = id}} ->
     {acc with actuators = cons id acc.actuators}
   | _ -> acc
 
-  sem collectTaskNames : RtpplNames -> RtpplTask -> RtpplNames
-  sem collectTaskNames acc =
+  sem collectTaskName : RtpplNames -> RtpplTask -> RtpplNames
+  sem collectTaskName acc =
   | TaskRtpplTask {id = {v = id}} ->
     {acc with tasks = cons id acc.tasks}
 
@@ -75,12 +75,11 @@ lang RtpplJson = RtpplAst
   sem generateJsonNetworkSpecification : RtpplProgram -> ()
   sem generateJsonNetworkSpecification =
   | ProgramRtpplProgram {
-      tops = tops,
-      main = MainRtpplMain {tasks = tasks, connections = connections}
+      main = MainRtpplMain {ext = ext, tasks = tasks, connections = connections}
     } ->
     let names = {sensors = [], actuators = [], tasks = []} in
-    let names = foldl collectRtpplTopNames names tops in
-    let names = foldl collectTaskNames names tasks in
+    let names = foldl collectSensorOrActuatorName names ext in
+    let names = foldl collectTaskName names tasks in
     let json = makeJsonSpecification names connections in
     writeFile "network.json" (json2string json)
 end

@@ -10,10 +10,6 @@ lang RtpplPrettyPrint = RtpplAst
 
   sem pprintRtpplTop : RtpplTop -> String
   sem pprintRtpplTop =
-  | SensorRtpplTop {id = {v = id}, ty = ty} ->
-    join ["sensor ", nameGetStr id, " : ", pprintRtpplType ty]
-  | ActuatorRtpplTop {id = {v = id}, ty = ty} ->
-    join ["actuator ", nameGetStr id, " : ", pprintRtpplType ty]
   | ConstantRtpplTop {id = {v = id}, ty = ty, e = e} ->
     join ["const ", nameGetStr id, " : ", pprintRtpplType ty, " = ", pprintRtpplExpr 2 e]
   | TypeAliasRtpplTop {id = {v = id}, ty = ty} ->
@@ -52,11 +48,19 @@ lang RtpplPrettyPrint = RtpplAst
 
   sem pprintRtpplMain : RtpplMain -> String
   sem pprintRtpplMain =
-  | MainRtpplMain {params = params, tasks = tasks, connections = connections} ->
+  | MainRtpplMain {params = params, ext = ext, tasks = tasks, connections = connections} ->
     let paramsStr = pprintRtpplParams params in
+    let extStr = strJoin "\n" (map pprintRtpplExt ext) in
     let tasksStr = strJoin "\n" (map pprintRtpplTask tasks) in
     let connectionsStr = strJoin "\n" (map pprintRtpplConnection connections) in
     join ["main(", paramsStr, ") {\n", tasksStr, "\n", connectionsStr, "\n}"]
+
+  sem pprintRtpplExt : RtpplExt -> String
+  sem pprintRtpplExt =
+  | SensorRtpplExt {id = {v = id}, ty = ty} ->
+    join ["  sensor ", nameGetStr id, " : ", pprintRtpplType ty]
+  | ActuatorRtpplExt {id = {v = id}, ty = ty} ->
+    join ["  actuator ", nameGetStr id, " : ", pprintRtpplType ty]
 
   sem pprintRtpplTask : RtpplTask -> String
   sem pprintRtpplTask =

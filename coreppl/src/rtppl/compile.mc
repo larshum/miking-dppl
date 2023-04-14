@@ -28,8 +28,6 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
 
   sem compileRtpplTop : RtpplTop -> Expr
   sem compileRtpplTop =
-  | SensorRtpplTop {info = info} | ActuatorRtpplTop {info = info} ->
-    TmRecord { bindings = mapEmpty cmpSID, ty = _tyunit info, info = info }
   | ConstantRtpplTop {id = {v = id}, ty = ty, e = e, info = info} ->
     let ty = compileRtpplType ty in
     let body = compileRtpplExpr e in
@@ -278,13 +276,7 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
         ty = _tyuk info, info = info }
     in
     let args = if null args then [uunit_] else map compileRtpplExpr args in
-    let funExpr =
-      -- TODO(larshum, 2023-04-12): Temporary hack to allow getting some
-      -- information from a distribution.
-      match nameGetStr id with "distEmpiricalNormConst" then
-        TmConst {val = CDistEmpiricalNormConst (), ty = _tyuk info, info = info}
-      else _var info id
-    in
+    let funExpr = _var info id in
     foldl appArg funExpr args
   | IdentPlusExprRtpplExpr {
       id = {v = id}, next = ProjectionRtpplExprNoIdent {id = {v = projId}},
