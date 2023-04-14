@@ -10,6 +10,7 @@ include "../parser.mc"
 include "../coreppl-to-mexpr/compile.mc"
 include "../coreppl-to-mexpr/runtimes.mc"
 
+include "json.mc"
 include "mexpr/shallow-patterns.mc"
 include "mexpr/type-check.mc"
 include "ocaml/mcore.mc"
@@ -21,8 +22,71 @@ let _rts = lam.
   let _defaultRuntimes = mapFromSeq cmpInferMethod [(_bpf, _bpfRtEntry)] in
   combineRuntimes default _defaultRuntimes
 
+lang RtpplJson = RtpplAst
+  type RtpplNames = {
+    sensors : [Name],
+    actuators : [Name],
+    tasks : [Name]
+  }
+
+  sem collectRtpplTopNames : RtpplNames -> RtpplTop -> RtpplNames
+  sem collectRtpplTopNames acc =
+  | SensorRtpplTop {id = {v = id}} ->
+    {acc with sensors = cons id acc.sensors}
+  | ActuatorRtpplTop {id = {v = id}} ->
+    {acc with actuators = cons id acc.actuators}
+  | _ -> acc
+
+  sem collectTaskNames : RtpplNames -> RtpplTask -> RtpplNames
+  sem collectTaskNames acc =
+  | TaskRtpplTask {id = {v = id}} ->
+    {acc with tasks = cons id acc.tasks}
+
+  sem connectionToJsonObject : RtpplConnection -> JsonValue
+  sem connectionToJsonObject =
+  | ConnectionRtpplConnection {from = from, to = to} ->
+    let portSpecToJsonString = lam ps.
+      match ps with PortSpecRtpplPortSpec {port = {v = pid}, id = id} in
+      let s =
+        match id with Some {v = chid} then
+          join [nameGetStr pid, "-", chid]
+        else nameGetStr pid
+      in
+      JsonString s
+    in
+    let mappings = [
+      ("from", portSpecToJsonString from),
+      ("to", portSpecToJsonString to)
+    ] in
+    JsonObject (mapFromSeq cmpString mappings)
+
+  sem makeJsonSpecification : RtpplNames -> [RtpplConnection] -> JsonValue
+  sem makeJsonSpecification names =
+  | connections ->
+    let nameToJsonString = lam id. JsonString (nameGetStr id) in
+    let topMappings = [
+      ("sensors", JsonArray (map nameToJsonString names.sensors)),
+      ("actuators", JsonArray (map nameToJsonString names.actuators)),
+      ("tasks", JsonArray (map nameToJsonString names.tasks)),
+      ("connections", JsonArray (map connectionToJsonObject connections))
+    ] in
+    JsonObject (mapFromSeq cmpString topMappings)
+
+  sem generateJsonNetworkSpecification : RtpplProgram -> ()
+  sem generateJsonNetworkSpecification =
+  | ProgramRtpplProgram {
+      tops = tops,
+      main = MainRtpplMain {tasks = tasks, connections = connections}
+    } ->
+    let names = {sensors = [], actuators = [], tasks = []} in
+    let names = foldl collectRtpplTopNames names tops in
+    let names = foldl collectTaskNames names tasks in
+    let json = makeJsonSpecification names connections in
+    writeFile "network.json" (json2string json)
+end
+
 lang Rtppl = 
-  RtpplCompile + RtpplValidate + RtpplPrettyPrint +
+  RtpplCompile + RtpplValidate + RtpplPrettyPrint + RtpplJson +
   MExprCompile + DPPLParser +
   MExprLowerNestedPatterns + MExprTypeCheck + MCoreCompileLang
 
@@ -78,10 +142,11 @@ lang Rtppl =
     let path = optJoinPath options.outputPath (nameGetStr taskId) in
     buildTaskDppl path taskAst
 
-  sem buildRtppl : RtpplOptions -> CompileResult -> ()
-  sem buildRtppl options =
+  sem buildRtppl : RtpplOptions -> RtpplProgram -> CompileResult -> ()
+  sem buildRtppl options program =
   | {tasks = tasks, ports = ports} ->
     iter (createPipe options) ports;
+    generateJsonNetworkSpecification program;
     mapFoldWithKey (lam. lam k. lam v. buildTaskExecutable options k v) () tasks
 end
 
@@ -105,4 +170,4 @@ let result = compileRtpplProgram program in
     result.tasks;
   ()
 else ());
-buildRtppl options result
+buildRtppl options program result

@@ -550,9 +550,8 @@ lang RtpplCompile =
     else error "Could not find lambda lifting solution for task"
 
   -- TODO(larshum, 2023-04-11): How to handle the parameters passed to main?
-  -- TODO(larshum, 2023-04-11): What do we generate for the connections?
-  sem compileTasks : Env -> RtpplMain -> CompileResult
-  sem compileTasks env =
+  sem compileMain : Env -> RtpplMain -> CompileResult
+  sem compileMain env =
   | MainRtpplMain {params = [], tasks = tasks, connections = connections} ->
     let emptyResult = { tasks = mapEmpty nameCmp, ports = [] } in
     foldl (compileTask env) emptyResult tasks
@@ -589,5 +588,5 @@ lang RtpplCompile =
       ports = foldl collectPortsPerTop (mapEmpty nameCmp) p.tops,
       topVarEnv = (addTopNames symEnvEmpty coreExpr).varEnv
     } in
-    compileTasks env p.main
+    compileMain env p.main
 end
