@@ -117,6 +117,7 @@ prod ArrayAccess : RtpplExpr = e:RtpplExpr "[" idx:RtpplExpr "]"
 prod ArrayLit : RtpplExpr = "[" (elems:RtpplExpr ("," elems:RtpplExpr)*)? "]"
 prod RecordLit : RtpplExpr = "{" (fields:{id:LIdent "=" e:RtpplExpr} ("," fields:{id:LIdent "=" e:RtpplExpr})*)? "}"
 prod Literal : RtpplExpr = const:RtpplConst
+prod Length : RtpplExpr = "|" e:RtpplExpr "|"
 
 -- NOTE(larshum, 2023-04-05): Definition of elementary distributions
 prod GaussianDist : RtpplExpr = "Gaussian" "(" mu:RtpplExpr "," sigma:RtpplExpr ")"

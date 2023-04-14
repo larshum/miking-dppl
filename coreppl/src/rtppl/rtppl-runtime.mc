@@ -183,7 +183,7 @@ let randElemExn : [Unknown] -> Unknown = lam s.
     let idx = randIntU 0 (length s) in
     get s idx
 
-let readRoomMap = lam.
+let readRoomMapRuntimeHelper = lam.
   let convChar = lam c. eqc c '1' in
   let filename = get argv 1 in
   let s = strTrim (readFile filename) in

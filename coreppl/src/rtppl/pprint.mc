@@ -200,6 +200,8 @@ lang RtpplPrettyPrint = RtpplAst
     join ["[", strJoin ", " (map (pprintRtpplExpr indent) elems), "]"]
   | ArrayAccessRtpplExpr {e = e, idx = idx} ->
     join [pprintRtpplExpr indent e, "[", pprintRtpplExpr indent idx, "]"]
+  | LengthRtpplExpr {e = e} ->
+    join ["|", pprintRtpplExpr indent e, "|"]
   | GaussianDistRtpplExpr {mu = mu, sigma = sigma} ->
     let ii = pprintIndentIncrement indent in
     join ["Gaussian(", pprintRtpplExpr ii mu, ", ", pprintRtpplExpr ii sigma, ")"]

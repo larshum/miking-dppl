@@ -365,6 +365,11 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
         ty = _tyuk info, info = info },
       rhs = compileRtpplExpr idx,
       ty = _tyuk info, info = info }
+  | LengthRtpplExpr {e = e, info = info} ->
+    TmApp {
+      lhs = TmConst {val = CLength (), ty = _tyuk info, info = info},
+      rhs = compileRtpplExpr e,
+      ty = _tyuk info, info = info }
   | GaussianDistRtpplExpr {mu = mu, sigma = sigma, info = info} ->
     TmDist {
       dist = DGaussian {mu = compileRtpplExpr mu, sigma = compileRtpplExpr sigma},
