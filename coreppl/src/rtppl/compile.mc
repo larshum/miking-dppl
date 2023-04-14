@@ -132,6 +132,17 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
           body = compileRtpplExpr model, ty = _tyuk info, info = info },
         ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info }
+  | DegenerateRtpplStmt {info = info} ->
+    let neginf = TmApp {
+      lhs = TmApp {
+        lhs = TmConst {val = CDivf (), ty = _tyuk info, info = info},
+        rhs = TmConst {val = CFloat {val = 1.0}, ty = _tyuk info, info = info},
+        ty = _tyuk info, info = info},
+      rhs = TmConst {val = CFloat {val = 0.0}, ty = _tyuk info, info = info},
+      ty = _tyuk info, info = info} in
+    TmWeight {weight = neginf, ty = _tyuk info, info = info}
+  | ResampleRtpplStmt {info = info} ->
+    TmResample {ty = _tyuk info, info = info}
   | LoopPlusStmtRtpplStmt {id = loopVar, loop = loopStmt, info = info} ->
     let _var = _var info in
     let loopId = nameSym "loopFn" in
@@ -140,10 +151,11 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
       else nameNoSym ""
     in
     let tailExpr =
-      match loopVar with Some {v = loopVarId}then _var loopVarId
+      match loopVar with Some {v = loopVarId} then _var loopVarId
       else uunit_ in
     match
-      match loopStmt with ForInRtpplLoopStmt {id = {v = id}, e = e, body = body} then
+      switch loopStmt
+      case ForInRtpplLoopStmt {id = {v = id}, e = e, body = body} then
         let tailId = nameSym "t" in
         let headTailPat = PatSeqEdge {
           prefix = [PatNamed {ident = PName id, ty = _tyuk info, info = info}],
@@ -162,13 +174,25 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
             thn = thn, els = tailExpr, ty = _tyuk info, info = info },
           ty = _tyuk info, info = info } in
         (body, Some e)
-      else match loopStmt with InfLoopRtpplLoopStmt {body = body} then
+      case InfLoopRtpplLoopStmt {body = body} then
         let recCall = TmApp {
           lhs = _var loopId, rhs = tailExpr, ty = _tyuk info,
           info = info } in
         (compileRtpplStmts recCall body, None ())
-      else
+      case WhileCondRtpplLoopStmt {cond = cond, body = body} then
+        let recCall = TmApp {
+          lhs = _var loopId, rhs = tailExpr, ty = _tyuk info, info = info
+        } in
+        let body = TmMatch {
+          target = compileRtpplExpr cond,
+          pat = PatBool {val = true, ty = _tyuk info, info = info},
+          thn = compileRtpplStmts recCall body,
+          els = tailExpr, ty = _tyuk info, info = info
+        } in
+        (body, None ())
+      case _ then
         errorSingle [info] "Compilation not supported for this loop"
+      end
     with (loopBody, loopCallArg) in
     let recBind = {
       ident = loopId, tyAnnot = _tyuk info, tyBody = _tyuk info,
@@ -218,12 +242,9 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
     let body =
       let e = compileRtpplExpr e in
       match proj with Some {v = label} then
-        let recUpd = TmRecordUpdate {
+        TmRecordUpdate {
           rec = _var info id, key = stringToSid label, value = e,
-          ty = _tyuk info, info = info } in
-        TmLet {
-          ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
-          body = recUpd, inexpr = uunit_, ty = _tyuk info, info = info }
+          ty = _tyuk info, info = info }
       else e
     in
     TmLet {
@@ -316,6 +337,13 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
       pat = PatBool {val = true, ty = TyBool {info = info}, info = info},
       thn = compileRtpplExpr r,
       els = TmConst {val = CBool {val = false}, ty = TyBool {info = info}, info = info},
+      ty = TyBool {info = info}, info = info}
+  | OrRtpplExpr {left = l, right = r, info = info} ->
+    TmMatch {
+      target = compileRtpplExpr l,
+      pat = PatBool {val = true, ty = TyBool {info = info}, info = info},
+      thn = TmConst {val = CBool {val = true}, ty = TyBool {info = info}, info = info},
+      els = compileRtpplExpr r,
       ty = TyBool {info = info}, info = info}
   | RecordLitRtpplExpr {fields = fields, info = info} ->
     let transformField = lam f.

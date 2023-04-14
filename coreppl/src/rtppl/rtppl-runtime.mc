@@ -1,5 +1,7 @@
 include "bool.mc"
 include "map.mc"
+include "math.mc"
+include "set.mc"
 include "ext/rtppl-ext.mc"
 
 let nanosPerSec = 1000000000
@@ -82,7 +84,7 @@ let delayBy : Ref Timespec -> Int -> Int = lam logicalTime. lam delay.
 type TSV a = (Timespec, a)
 
 -- TODO(larshum, 2023-04-13): These functions involve mutability (deref) which
--- is not supported inside DPPL models.
+-- is not supported inside DPPL models (because of CFA).
 let tsvTimestamp : TSV Unknown -> Int = lam tsv.
   let lt = deref logicalTime in
   timespecToNanos (diffTimespec tsv.0 lt)
@@ -152,6 +154,46 @@ let rtpplRuntimeInit : [String] -> [String] -> (() -> Unknown) -> Unknown =
   updateInputSequences ();
 
   cont ()
+
+-- NOTE(larshum, 2023-04-14): The below functions are exposed to the DSL code,
+-- but should probably be handled differently.
+let push : [Unknown] -> Unknown -> [Unknown] = lam s. lam elem.
+  snoc s elem
+
+let floor : Float -> Int = lam f. floorfi f
+
+let intToFloat : Int -> Float = lam i. int2float i
+
+let sort : (Unknown -> Unknown -> Int) -> [Unknown] -> [Unknown] =
+  lam cmp. lam s.
+  setToSeq (setOfSeq cmp s)
+
+let filter : (Unknown -> Bool) -> [Unknown] -> [Unknown] =
+  lam p. lam s.
+  foldl (lam acc. lam x. if p x then snoc acc x else acc) [] s
+
+recursive let range : Int -> Int -> [Int] = lam lo. lam hi.
+  if lti lo hi then cons lo (range (addi lo 1) hi)
+  else []
+end
+
+let randElemExn : [Unknown] -> Unknown = lam s.
+  if null s then error "Cannot get random element of empty sequence"
+  else
+    let idx = randIntU 0 (length s) in
+    get s idx
+
+let readRoomMap = lam.
+  let convChar = lam c. eqc c '1' in
+  let filename = get argv 1 in
+  let s = strTrim (readFile filename) in
+  match strSplit "\n" s with [coordsLine] ++ rows then
+    match strSplit " " coordsLine with [nrows, ncols] then
+      let nrows = string2int nrows in
+      let ncols = string2int ncols in
+      create nrows (lam r. map convChar (get rows r))
+    else error "Invalid room map format"
+  else error "Invalid room map format"
 
 mexpr
 

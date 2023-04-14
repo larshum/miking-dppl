@@ -99,6 +99,10 @@ lang RtpplPrettyPrint = RtpplAst
     join [pprintIndent indent, "assume ", nameGetStr id, " ~ ", pprintRtpplExpr indent d]
   | InferRtpplStmt {id = {v = id}, model = model} ->
     join [pprintIndent indent, "infer ", nameGetStr id, " -> ", pprintRtpplExpr indent model]
+  | DegenerateRtpplStmt _ ->
+    "degenerate"
+  | ResampleRtpplStmt _ ->
+    "resample"
   | LoopPlusStmtRtpplStmt {id = loopVar, loop = loopTerm, info = info} ->
     let loopVarStr =
       match loopVar with Some {v = loopVarId} then
@@ -112,6 +116,8 @@ lang RtpplPrettyPrint = RtpplAst
         (join [" for ", nameGetStr id, " in ", pprintRtpplExpr indent e], body)
       case InfLoopRtpplLoopStmt {body = body} then
         ("", body)
+      case WhileCondRtpplLoopStmt {cond = cond, body = body} then
+        (join [" while ", pprintRtpplExpr indent cond], body)
       case _ then
         errorSingle [info] "Pretty-printer does not support this loop form"
       end
@@ -181,6 +187,8 @@ lang RtpplPrettyPrint = RtpplAst
     join [pprintRtpplExpr indent l, " >. ", pprintRtpplExpr indent r]
   | AndRtpplExpr {left = l, right = r} ->
     join [pprintRtpplExpr indent l, " && ", pprintRtpplExpr indent r]
+  | OrRtpplExpr {left = l, right = r} ->
+    join [pprintRtpplExpr indent l, " || ", pprintRtpplExpr indent r]
   | RecordLitRtpplExpr {fields = fields} ->
     let ii = pprintIndentIncrement indent in
     let ppField = lam f.

@@ -94,6 +94,8 @@ prod Binding : RtpplStmt = "var" id:LName ":" ty:RtpplType "=" e:RtpplExpr
 prod Observe : RtpplStmt = "observe" e:RtpplExpr "~" d:RtpplExpr
 prod Assume : RtpplStmt = "assume" id:LName "~" d:RtpplExpr
 prod Infer : RtpplStmt = "infer" id:LName "<-" model:RtpplExpr
+prod Degenerate : RtpplStmt = "degenerate"
+prod Resample : RtpplStmt = "resample"
 prod Condition : RtpplStmt =
   "cond" id:LName? "if" cond:RtpplExpr "{" thn:RtpplStmt* "}" "else" "{" els:RtpplStmt* "}"
 prod LoopPlusStmt : RtpplStmt = "loop" id:LName? loop:RtpplLoopStmt
@@ -101,6 +103,7 @@ prod LoopPlusStmt : RtpplStmt = "loop" id:LName? loop:RtpplLoopStmt
 -- NOTE(larshum, 2023-03-06): Grammar workarounds to make it LL(1).
 prod ForIn : RtpplLoopStmt = "for" id:LName "in" e:RtpplExpr "{" body:RtpplStmt* "}"
 prod InfLoop : RtpplLoopStmt = "{" body:RtpplStmt* "}"
+prod WhileCond : RtpplLoopStmt = "while" cond:RtpplExpr "{" body:RtpplStmt* "}"
 
 prod IdentPlusStmt : RtpplStmt = id:LName next:RtpplStmtNoIdent
 prod Reassign : RtpplStmtNoIdent = ("." proj:LIdent)? "=" e:RtpplExpr
@@ -119,28 +122,29 @@ prod Literal : RtpplExpr = const:RtpplConst
 prod GaussianDist : RtpplExpr = "Gaussian" "(" mu:RtpplExpr "," sigma:RtpplExpr ")"
 prod UniformDist : RtpplExpr = "Uniform" "(" lo:RtpplExpr "," hi:RtpplExpr ")"
 
-infix AddInt : RtpplExpr = "+"
-infix SubInt : RtpplExpr = "-"
-infix MulInt : RtpplExpr = "*"
-infix DivInt : RtpplExpr = "/"
-infix Rem : RtpplExpr = "%"
+infix left AddInt : RtpplExpr = "+"
+infix left SubInt : RtpplExpr = "-"
+infix left MulInt : RtpplExpr = "*"
+infix left DivInt : RtpplExpr = "/"
+infix left Rem : RtpplExpr = "%"
 infix Eq : RtpplExpr = "=="
 infix Geq : RtpplExpr = ">="
 infix LtInt : RtpplExpr = "<"
 infix GtInt : RtpplExpr = ">"
-infix AddFloat : RtpplExpr = "+."
-infix SubFloat : RtpplExpr = "-."
-infix MulFloat : RtpplExpr = "*."
-infix DivFloat : RtpplExpr = "/."
+infix left AddFloat : RtpplExpr = "+."
+infix left SubFloat : RtpplExpr = "-."
+infix left MulFloat : RtpplExpr = "*."
+infix left DivFloat : RtpplExpr = "/."
 infix LtFloat : RtpplExpr = "<."
 infix GtFloat : RtpplExpr = ">."
-infix And : RtpplExpr = "&&"
+infix left And : RtpplExpr = "&&"
+infix left Or : RtpplExpr = "||"
 
 precedence {
   MulInt DivInt MulFloat DivFloat Rem;
   AddInt SubInt AddFloat SubFloat;
   Eq Geq LtInt GtInt LtFloat GtFloat;
-  And;
+  And Or;
 }
 
 prod Main : RtpplMain =
