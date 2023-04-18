@@ -40,4 +40,6 @@ external set_priority : int -> int = "set_priority_stub"
 let set_max_priority (_ : unit) : int = set_priority 255
 
 external read_float_named_pipe : string -> (float tsv) array = "read_float_named_pipe_stub"
+external read_dist_float_record_named_pipe : string -> (Obj.t tsv) array = "read_dist_float_record_named_pipe_stub"
 external write_float_named_pipe : string -> float -> timespec -> unit = "write_float_named_pipe_stub"
+external write_dist_float_record_named_pipe : string -> Obj.t -> timespec -> unit = "write_dist_float_record_named_pipe_stub"
