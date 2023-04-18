@@ -83,11 +83,11 @@ let delayBy : Ref Timespec -> Int -> Int = lam logicalTime. lam delay.
 
 type TSV a = (Timespec, a)
 
-let tsvTimestamp : TSV Unknown -> Int = lam tsv.
+let timestamp : TSV Unknown -> Int = lam tsv.
   let lt = deref logicalTime in
   timespecToNanos (diffTimespec tsv.0 lt)
-let tsvValue : TSV Unknown -> Unknown = lam tsv. tsv.1
-let tsvCreate : Int -> Unknown -> TSV Unknown = lam offset. lam value.
+let value : TSV Unknown -> Unknown = lam tsv. tsv.1
+let tsv : Int -> Unknown -> TSV Unknown = lam offset. lam value.
   let lt = deref logicalTime in
   (addTimespec lt (nanosToTimespec offset), value)
 
@@ -139,14 +139,22 @@ let rtpplRuntimeInit : (() -> ()) -> (() -> Unknown) -> () =
 
   ()
 
--- NOTE(larshum, 2023-04-14): The below functions are exposed to the DSL code,
--- but should probably be handled differently.
+-- NOTE(larshum, 2023-04-14): The below functions are intentionally exposed to
+-- the DSL code.
+let addInt = addi
+let subInt = subi
+let mulInt = muli
+let divInt = divi
+let negInt = subi 0
+let ltInt = lti
+let gtInt = gti
+let geqInt = geqi
+let eqInt = eqi
+let floorToInt = floorfi
+let intToFloat = int2float
+
 let push : [Unknown] -> Unknown -> [Unknown] = lam s. lam elem.
   snoc s elem
-
-let floor : Float -> Int = lam f. floorfi f
-
-let intToFloat : Int -> Float = lam i. int2float i
 
 let sort : (Unknown -> Unknown -> Int) -> [Unknown] -> [Unknown] =
   lam cmp. lam s.

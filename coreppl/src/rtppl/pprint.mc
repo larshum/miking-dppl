@@ -169,36 +169,18 @@ lang RtpplPrettyPrint = RtpplAst
   | IdentPlusExprRtpplExpr {id = {v = id}, next = ProjectionRtpplExprNoIdent {id = {v = projId}}} ->
     join [nameGetStr id, ".", projId]
   | LiteralRtpplExpr {const = c} -> pprintRtpplConst c
-  | AddIntRtpplExpr {left = l, right = r} ->
-    join [pprintRtpplExpr indent l, " + ", pprintRtpplExpr indent r]
-  | SubIntRtpplExpr {left = l, right = r} ->
-    join [pprintRtpplExpr indent l, " - ", pprintRtpplExpr indent r]
-  | MulIntRtpplExpr {left = l, right = r} ->
-    join [pprintRtpplExpr indent l, " * ", pprintRtpplExpr indent r]
-  | DivIntRtpplExpr {left = l, right = r} ->
-    join [pprintRtpplExpr indent l, " / ", pprintRtpplExpr indent r]
-  | RemRtpplExpr {left = l, right = r} ->
-    join [pprintRtpplExpr indent l, " % ", pprintRtpplExpr indent r]
-  | EqRtpplExpr {left = l, right = r} ->
-    join [pprintRtpplExpr indent l, " == ", pprintRtpplExpr indent r]
-  | GeqRtpplExpr {left = l, right = r} ->
-    join [pprintRtpplExpr indent l, " >= ", pprintRtpplExpr indent r]
-  | LtIntRtpplExpr {left = l, right = r} ->
-    join [pprintRtpplExpr indent l, " < ", pprintRtpplExpr indent r]
-  | GtIntRtpplExpr {left = l, right = r} ->
-    join [pprintRtpplExpr indent l, " > ", pprintRtpplExpr indent r]
-  | AddFloatRtpplExpr {left = l, right = r} ->
+  | AddRtpplExpr {left = l, right = r} ->
     join [pprintRtpplExpr indent l, " +. ", pprintRtpplExpr indent r]
-  | SubFloatRtpplExpr {left = l, right = r} ->
+  | SubRtpplExpr {left = l, right = r} ->
     join [pprintRtpplExpr indent l, " -. ", pprintRtpplExpr indent r]
-  | MulFloatRtpplExpr {left = l, right = r} ->
+  | MulRtpplExpr {left = l, right = r} ->
     join [pprintRtpplExpr indent l, " *. ", pprintRtpplExpr indent r]
-  | DivFloatRtpplExpr {left = l, right = r} ->
+  | DivRtpplExpr {left = l, right = r} ->
     join [pprintRtpplExpr indent l, " /. ", pprintRtpplExpr indent r]
-  | LtFloatRtpplExpr {left = l, right = r} ->
-    join [pprintRtpplExpr indent l, " <. ", pprintRtpplExpr indent r]
-  | GtFloatRtpplExpr {left = l, right = r} ->
-    join [pprintRtpplExpr indent l, " >. ", pprintRtpplExpr indent r]
+  | LtRtpplExpr {left = l, right = r} ->
+    join [pprintRtpplExpr indent l, " < ", pprintRtpplExpr indent r]
+  | GtRtpplExpr {left = l, right = r} ->
+    join [pprintRtpplExpr indent l, " > ", pprintRtpplExpr indent r]
   | AndRtpplExpr {left = l, right = r} ->
     join [pprintRtpplExpr indent l, " && ", pprintRtpplExpr indent r]
   | OrRtpplExpr {left = l, right = r} ->

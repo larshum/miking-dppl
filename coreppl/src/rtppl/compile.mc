@@ -641,35 +641,17 @@ lang RtpplDPPLCompile =
       info = info }
   | LiteralRtpplExpr {const = c} ->
     compileRtpplConst c
-  | AddIntRtpplExpr {left = l, right = r, info = info} ->
-    _constructApp info (CAddi ()) l r
-  | SubIntRtpplExpr {left = l, right = r, info = info} ->
-    _constructApp info (CSubi ()) l r
-  | MulIntRtpplExpr {left = l, right = r, info = info} ->
-    _constructApp info (CMuli ()) l r
-  | DivIntRtpplExpr {left = l, right = r, info = info} ->
-    _constructApp info (CDivi ()) l r
-  | RemRtpplExpr {left = l, right = r, info = info} ->
-    _constructApp info (CModi ()) l r
-  | EqRtpplExpr {left = l, right = r, info = info} ->
-    _constructApp info (CEqi ()) l r
-  | GeqRtpplExpr {left = l, right = r, info = info} ->
-    _constructApp info (CGeqi ()) l r
-  | LtIntRtpplExpr {left = l, right = r, info = info} ->
-    _constructApp info (CLti ()) l r
-  | GtIntRtpplExpr {left = l, right = r, info = info} ->
-    _constructApp info (CGti ()) l r
-  | AddFloatRtpplExpr {left = l, right = r, info = info} ->
+  | AddRtpplExpr {left = l, right = r, info = info} ->
     _constructApp info (CAddf ()) l r
-  | SubFloatRtpplExpr {left = l, right = r, info = info} ->
+  | SubRtpplExpr {left = l, right = r, info = info} ->
     _constructApp info (CSubf ()) l r
-  | MulFloatRtpplExpr {left = l, right = r, info = info} ->
+  | MulRtpplExpr {left = l, right = r, info = info} ->
     _constructApp info (CMulf ()) l r
-  | DivFloatRtpplExpr {left = l, right = r, info = info} ->
+  | DivRtpplExpr {left = l, right = r, info = info} ->
     _constructApp info (CDivf ()) l r
-  | LtFloatRtpplExpr {left = l, right = r, info = info} ->
+  | LtRtpplExpr {left = l, right = r, info = info} ->
     _constructApp info (CLtf ()) l r
-  | GtFloatRtpplExpr {left = l, right = r, info = info} ->
+  | GtRtpplExpr {left = l, right = r, info = info} ->
     _constructApp info (CGtf ()) l r
   | AndRtpplExpr {left = l, right = r, info = info} ->
     TmMatch {

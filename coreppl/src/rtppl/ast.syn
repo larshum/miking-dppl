@@ -125,28 +125,19 @@ prod Length : RtpplExpr = "|" e:RtpplExpr "|"
 prod GaussianDist : RtpplExpr = "Gaussian" "(" mu:RtpplExpr "," sigma:RtpplExpr ")"
 prod UniformDist : RtpplExpr = "Uniform" "(" lo:RtpplExpr "," hi:RtpplExpr ")"
 
-infix left AddInt : RtpplExpr = "+"
-infix left SubInt : RtpplExpr = "-"
-infix left MulInt : RtpplExpr = "*"
-infix left DivInt : RtpplExpr = "/"
-infix left Rem : RtpplExpr = "%"
-infix Eq : RtpplExpr = "=="
-infix Geq : RtpplExpr = ">="
-infix LtInt : RtpplExpr = "<"
-infix GtInt : RtpplExpr = ">"
-infix left AddFloat : RtpplExpr = "+."
-infix left SubFloat : RtpplExpr = "-."
-infix left MulFloat : RtpplExpr = "*."
-infix left DivFloat : RtpplExpr = "/."
-infix LtFloat : RtpplExpr = "<."
-infix GtFloat : RtpplExpr = ">."
+infix left Add : RtpplExpr = "+"
+infix left Sub : RtpplExpr = "-"
+infix left Mul : RtpplExpr = "*"
+infix left Div : RtpplExpr = "/"
+infix Lt : RtpplExpr = "<"
+infix Gt : RtpplExpr = ">"
 infix left And : RtpplExpr = "&&"
 infix left Or : RtpplExpr = "||"
 
 precedence {
-  MulInt DivInt MulFloat DivFloat Rem;
-  AddInt SubInt AddFloat SubFloat;
-  Eq Geq LtInt GtInt LtFloat GtFloat;
+  Mul Div;
+  Add Sub;
+  Lt Gt;
   And Or;
 }
 
