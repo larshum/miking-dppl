@@ -2,14 +2,102 @@ include "ast.mc"
 include "../parser.mc"
 include "../src-location.mc"
 
+include "common.mc"
+include "option.mc"
 include "mexpr/ast.mc"
 include "mexpr/ast-builder.mc"
+include "mexpr/boot-parser.mc"
 include "mexpr/duplicate-code-elimination.mc"
 include "mexpr/extract.mc"
 include "mexpr/lamlift.mc"
+include "mexpr/symbolize.mc"
 include "mexpr/utils.mc"
 
-lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
+let inputRecordId = nameSym "InputRecord"
+let inputSeqsId = nameSym "inputSeqs"
+let updateInputsId = nameSym "updateInputs"
+
+let runtimeRef = ref (None ())
+let rtIdRef = ref (None ())
+
+lang RtpplCompileBase =
+  RtpplAst + MExprAst + MExprFindSym + BootParser + MExprSym
+
+  type RuntimeIds = {
+    sdelay : Name,
+    readFloat : Name,
+    readDistFloatRecord : Name,
+    writeFloat : Name,
+    writeDistFloatRecord : Name,
+    tsv : Name,
+    init : Name
+  }
+
+  type RtpplTopEnv = {
+    topId : Name,
+    portTypes : Map String RtpplType,
+    aliases : Map Name RtpplType,
+    runtimeIds : RuntimeIds
+  }
+
+  type PortData = {
+    id : String,
+    isInput : Bool,
+    ty : RtpplType
+  }
+
+  type CompileEnv = {
+    ast : Expr,
+    llSolutions : Map Name (Map Name Type),
+    ports : Map Name [PortData],
+    topVarEnv : Map String Name
+  }
+
+  sem readRuntime : () -> Expr
+  sem readRuntime =
+  | _ ->
+    match deref runtimeRef with Some rt then rt
+    else
+      let runtimePath = concat corepplSrcLoc "/rtppl/rtppl-runtime.mc" in
+      let parseOpts =
+        {defaultBootParserParseMCoreFileArg with keepUtests = false,
+                                                 eliminateDeadCode = false} in
+      let runtime = symbolize (parseMCoreFile parseOpts runtimePath) in
+      modref runtimeRef (Some runtime);
+      runtime
+
+  sem getRuntimeIds : () -> RuntimeIds
+  sem getRuntimeIds =
+  | _ ->
+    match deref rtIdRef with Some ids then ids
+    else
+      let strs = [
+        "sdelay", "rtpplReadFloatPipe", "rtpplReadDistFloatRecordPipe",
+        "rtpplWriteFloatPort", "rtpplWriteDistFloatRecordPort", "TSV",
+        "rtpplRuntimeInit"
+      ] in
+      let rt = readRuntime () in
+      match optionMapM identity (findNamesOfStrings strs rt)
+      with Some ids then
+        let result =
+          { sdelay = get ids 0, readFloat = get ids 1
+          , readDistFloatRecord = get ids 2, writeFloat = get ids 3
+          , writeDistFloatRecord = get ids 4, tsv = get ids 5
+          , init = get ids 6 }
+        in
+        modref rtIdRef (Some result);
+        result
+      else
+        error "Failed to initialize the compilation environment"
+
+  sem initTopEnv : () -> RtpplTopEnv
+  sem initTopEnv =
+  | _ ->
+    { topId = nameNoSym ""
+    , portTypes = mapEmpty cmpString
+    , aliases = mapEmpty nameCmp
+    , runtimeIds = getRuntimeIds () }
+
   sem _tyuk : Info -> Type
   sem _tyuk =
   | info -> TyUnknown {info = info}
@@ -22,22 +110,246 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
   sem _var info =
   | id -> TmVar {ident = id, ty = _tyuk info, info = info, frozen = false}
 
+  sem _str : Info -> String -> Expr
+  sem _str info =
+  | s ->
+    let f = lam c.
+      TmConst {val = CChar {val = c}, ty = _tyuk info, info = info}
+    in
+    TmSeq {tms = map f s, ty = _tyuk info, info = info}
+
   sem _rtpplEscapeName : Name -> Name
   sem _rtpplEscapeName =
   | id -> nameSetStr id (concat "RTPPL_" (nameGetStr id))
 
-  sem compileRtpplTop : RtpplTop -> Expr
-  sem compileRtpplTop =
+  -- NOTE(larshum, 2023-04-11): This function produces a string uniquely
+  -- identifying the port of a task.
+  sem getPortIdentifier : Name -> RtpplPort -> String
+  sem getPortIdentifier taskId =
+  | InputRtpplPort {id = {v = id}}
+  | OutputRtpplPort {id = {v = id}}
+  | ActuatorOutputRtpplPort {id = {v = id}} ->
+    _getPortIdentifier taskId id
+
+  sem _getPortIdentifier : Name -> String -> String
+  sem _getPortIdentifier taskId =
+  | portStr -> join [nameGetStr taskId, "-", portStr]
+
+  sem resolveTypeAlias : RtpplTopEnv -> RtpplType -> RtpplType
+  sem resolveTypeAlias env =
+  | ty & (AliasRtpplType {id = {v = id}, next = DirectRtpplTypeNoIdent _}) ->
+    match mapLookup id env.aliases with Some ty then resolveTypeAlias env ty
+    else ty
+  | ty -> smap_RtpplType_RtpplType (resolveTypeAlias env) ty
+
+  sem getCapturedTopLevelVars : CompileEnv -> Name -> [Expr]
+  sem getCapturedTopLevelVars env =
+  | id ->
+    -- NOTE(larshum, 2023-04-12): We find the top-level names that
+    -- correspond to the names of the captured parameters.
+    match mapLookup id env.llSolutions with Some argMap then
+      let argIds = mapKeys argMap in
+      map
+        (lam id.
+          let s = nameGetStr id in
+          match mapLookup s env.topVarEnv with Some topLevelId then
+            nvar_ topLevelId
+          else
+            let msg = join [
+              "Could not find top-level binding of captured parameter ",
+              nameGetStr id
+            ] in
+            error msg)
+        argIds
+    else error "Could not find lambda lifting solution for task"
+end
+
+lang RtpplCompileReadWrite =
+  RtpplCompileBase + MExprAst + MExprSym + MExprTypeCheck
+
+  syn Expr =
+  | TmRead {portId : String, tyData : Type, ty : Type, info : Info}
+  | TmWrite {portId : String, src : Expr, delay : Expr, tyData : Type, ty : Type, info : Info}
+  | TmSdelay {e : Expr, ty : Type, info : Info}
+
+  sem infoTm =
+  | TmRead t -> t.info
+  | TmWrite t -> t.info
+  | TmSdelay t -> t.info
+
+  sem tyTm =
+  | TmRead t -> t.ty
+  | TmWrite t -> t.ty
+  | TmSdelay t -> t.ty
+
+  sem withInfo info =
+  | TmRead t -> TmRead {t with info = info}
+  | TmWrite t -> TmWrite {t with info = info}
+  | TmSdelay t -> TmSdelay {t with info = info}
+
+  sem withType ty =
+  | TmRead t -> TmRead {t with ty = ty}
+  | TmWrite t -> TmWrite {t with ty = ty}
+  | TmSdelay t -> TmSdelay {t with ty = ty}
+
+  sem smapAccumL_Expr_Expr f acc =
+  | TmRead t ->
+    (acc, TmRead t)
+  | TmWrite t ->
+    match f acc t.src with (acc, src) in
+    (acc, TmWrite {t with src = src})
+  | TmSdelay t ->
+    match f acc t.e with (acc, e) in
+    (acc, TmSdelay {t with e = e})
+
+  sem symbolizeExpr : SymEnv -> Expr -> Expr
+  sem symbolizeExpr env =
+  | TmRead t ->
+    TmRead {t with tyData = symbolizeType env t.tyData,
+                   ty = symbolizeType env t.ty}
+  | TmWrite t ->
+    TmWrite {t with src = symbolizeExpr env t.src,
+                    delay = symbolizeExpr env t.delay,
+                    tyData = symbolizeType env t.tyData,
+                    ty = symbolizeType env t.ty}
+  | TmSdelay t ->
+    TmSdelay {t with e = symbolizeExpr env t.e,
+                     ty = symbolizeType env t.ty}
+
+  sem typeCheckExpr : TCEnv -> Expr -> Expr
+  sem typeCheckExpr env =
+  | TmRead t ->
+    let tyRes = newvar env.currentLvl t.info in
+    unify [t.info] (tyseq_ (tytuple_ [tytuple_ [tyint_, tyint_], t.tyData])) tyRes;
+    TmRead {t with ty = tyRes}
+  | TmWrite t ->
+    let src = typeCheckExpr env t.src in
+    let delay = typeCheckExpr env t.delay in
+    let tyRes = newvar env.currentLvl t.info in
+    let tyData = newvar env.currentLvl t.info in
+    unify [t.info] t.tyData tyData;
+    unify [t.info] (tyTm src) tyData;
+    unify [t.info] (tytuple_ [tytuple_ [tyint_, tyint_], t.tyData]) tyRes;
+    unify [t.info] tyint_ (tyTm delay);
+    TmWrite {t with src = src, ty = tyRes}
+  | TmSdelay t ->
+    let e = typeCheckExpr env t.e in
+    let tyRes = newvar env.currentLvl t.info in
+    unify [t.info] tyint_ (tyTm e);
+    unify [t.info] tyunit_ tyRes;
+    TmSdelay {t with e = e, ty = tyRes}
+end
+
+lang RtpplCompileType = RtpplCompileBase + DPPLParser
+  sem compileRtpplType : RtpplType -> Type
+  sem compileRtpplType =
+  | IntRtpplType {info = info} ->
+    TyInt {info = info}
+  | FloatRtpplType {info = info} ->
+    TyFloat {info = info}
+  | BoolRtpplType {info = info} ->
+    TyBool {info = info}
+  | UnitRtpplType {info = info} ->
+    _tyunit info
+  | SeqRtpplType {ty = ty, info = info} ->
+    TySeq {ty = compileRtpplType ty, info = info}
+  | DistRtpplType {ty = ty, info = info} ->
+    TyDist {ty = compileRtpplType ty, info = info}
+  | AliasRtpplType {id = {v = id}, next = next, info = info} ->
+    let args =
+      match next with DirectRtpplTypeNoIdent _ then []
+      else match next with ApplicationRtpplTypeNoIdent {args = args} then args
+      else errorSingle [info] "Unsupported type alias form"
+    in
+    let appArg = lam acc. lam arg.
+      TyApp { lhs = acc, rhs = compileRtpplType arg, info = info }
+    in
+    foldl appArg (TyCon {ident = id, info = info}) args
+  | RecordRtpplType {fields = fields, info = info} ->
+    let toMExprField = lam field.
+      match field with {id = {v = id}, ty = ty} in
+      (stringToSid id, compileRtpplType ty)
+    in
+    TyRecord {fields = mapFromSeq cmpSID (map toMExprField fields), info = info}
+  | FunctionRtpplType {from = from, to = to, info = info} ->
+    TyArrow {from = compileRtpplType from, to = compileRtpplType to, info = info}
+end
+
+lang RtpplPortWriteCompile = RtpplCompileBase + RtpplCompileType
+  sem compilePortWrite : CompileEnv -> Map String PortData -> Name -> Info -> Expr
+                      -> Expr -> String -> Expr
+  sem compilePortWrite env portMap taskId info src delayExpr =
+  | portStr ->
+    match mapLookup portStr portMap with Some data then
+      let msgExpr = TmApp {
+        lhs = TmConst {val = CUnsafeCoerce (), ty = _tyuk info, info = info},
+        rhs = src, ty = _tyuk info, info = info
+      } in
+      let rtIds = getRuntimeIds () in
+      let portId = _getPortIdentifier taskId portStr in
+      TmApp {
+        lhs = compilePortWriteH env rtIds info msgExpr portId data.ty,
+        rhs = delayExpr, ty = _tyuk info, info = info }
+    else
+      errorSingle [info] (concat "Reference to undefined port " portStr)
+
+  sem compilePortWriteH : CompileEnv -> RuntimeIds -> Info -> Expr -> String
+                       -> RtpplType -> Expr
+  sem compilePortWriteH env rtIds info msg portId =
+  | FloatRtpplType _ ->
+    let writeId = rtIds.writeFloat in
+    let liftedArgs = getCapturedTopLevelVars env writeId in
+    let writeFun = appSeq_ (_var info writeId) liftedArgs in
+    TmApp {
+      lhs = TmApp {
+        lhs = writeFun,
+        rhs = _str info portId, ty = _tyuk info, info = info },
+      rhs = msg, ty = _tyuk info, info = info }
+  | DistRtpplType {ty = RecordRtpplType {fields = fields}} ->
+    let isFloatField = lam field.
+      match field with {ty = FloatRtpplType _} then true
+      else false
+    in
+    let writeId = rtIds.writeDistFloatRecord in
+    -- NOTE(larshum, 2023-04-17): For now, we only support distributions
+    -- over a record where all fields are floating-point values.
+    if forAll isFloatField fields then
+      let nfields = length fields in
+      let liftedArgs = getCapturedTopLevelVars env writeId in
+      let writeFun = appSeq_ (_var info writeId) liftedArgs in
+      TmApp {
+        lhs = TmApp {
+          lhs = TmApp {
+            lhs = writeFun, rhs = _str info portId,
+            ty = _tyuk info, info = info },
+          rhs = msg, ty = _tyuk info, info = info },
+        rhs = TmConst {val = CInt {val = nfields}, ty = _tyuk info, info = info},
+        ty = _tyuk info, info = info }
+    else compilePortWriteDefault info
+  | _ -> compilePortWriteDefault info
+
+  sem compilePortWriteDefault : Info -> Expr
+  sem compilePortWriteDefault =
+  | info -> errorSingle [info] "Writing to ports of this type is not supported"
+end
+
+lang RtpplDPPLCompile =
+  RtpplPortWriteCompile + RtpplCompileReadWrite + DPPLParser
+
+  sem compileRtpplTop : RtpplTopEnv -> RtpplTop -> (RtpplTopEnv, Expr)
+  sem compileRtpplTop env =
   | ConstantRtpplTop {id = {v = id}, ty = ty, e = e, info = info} ->
     let ty = compileRtpplType ty in
     let body = compileRtpplExpr e in
-    TmLet {
-      ident = id, tyAnnot = _tyuk info, tyBody = ty, body = body,
-      inexpr = uunit_, ty = _tyuk info, info = info }
+    ( env
+    , TmLet {
+        ident = id, tyAnnot = _tyuk info, tyBody = ty, body = body,
+        inexpr = uunit_, ty = _tyuk info, info = info } )
   | TypeAliasRtpplTop {id = {v = id}, ty = ty, info = info} ->
-    TmType {
-      ident = id, params = [], tyIdent = compileRtpplType ty,
-      inexpr = uunit_, ty = _tyuk info, info = info }
+    ( {env with aliases = mapInsert id ty env.aliases}
+    , TmType {
+        ident = id, params = [], tyIdent = compileRtpplType ty,
+        inexpr = uunit_, ty = _tyuk info, info = info } )
   | FunctionDefRtpplTop {id = {v = id}, params = params, ty = ty,
                          body = {ports = ports, stmts = stmts, ret = ret},
                          info = info} ->
@@ -59,7 +371,7 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
     -- with ports to ensure they are distinct from anything introduced by the
     -- runtime. Functions with ports may only be used from main, so we make
     -- sure to escape their names there as well.
-    let id =
+    let escapedId =
       if null ports then id
       else _rtpplEscapeName id
     in
@@ -72,36 +384,36 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
         if null params then [(nameNoSym "", _tyunit info, info)]
         else map compileParam params
       in
-      -- NOTE(larshum, 2023-04-11): All declared ports are added as parameters
-      -- of the function. These parameters are strings containing an identifier
-      -- for each port.
-      concat (reverse params) (map compilePort (reverse ports))
+      reverse params
     in
     let tyAnnot = foldl addParamTypeAnnot (compileRtpplType ty) params in
-    let body = compileRtpplStmts retExpr stmts in
-    TmLet {
-      ident = id, tyAnnot = tyAnnot, tyBody = tyAnnot,
-      body = foldl addParamToBody body params, inexpr = uunit_,
-      ty = _tyuk info, info = info }
+    let env = {env with topId = id} in
+    let env = foldl buildPortTypesMap env ports in
+    let body = compileRtpplStmts env retExpr stmts in
+    ( env
+    , TmLet {
+        ident = escapedId, tyAnnot = tyAnnot, tyBody = tyAnnot,
+        body = foldl addParamToBody body params, inexpr = uunit_,
+        ty = _tyuk info, info = info } )
 
-  sem compilePort : RtpplPort -> (Name, Type, Info)
-  sem compilePort =
-  | InputRtpplPort {id = {v = id}, info = info}
-  | OutputRtpplPort {id = {v = id}, info = info}
-  | ActuatorOutputRtpplPort {id = {v = id}, info = info} ->
-    (nameNoSym id, TySeq {ty = TyChar {info = info}, info = info}, info)
+  sem buildPortTypesMap : RtpplTopEnv -> RtpplPort -> RtpplTopEnv
+  sem buildPortTypesMap env =
+  | InputRtpplPort {id = {v = id}, ty = ty}
+  | OutputRtpplPort {id = {v = id} , ty = ty}
+  | ActuatorOutputRtpplPort {id = {v = id}, ty = ty} ->
+    let str = _getPortIdentifier env.topId id in
+    let ty = resolveTypeAlias env ty in
+    {env with portTypes = mapInsert str ty env.portTypes}
 
-  sem compileRtpplStmts : Expr -> [RtpplStmt] -> Expr
-  sem compileRtpplStmts inexpr =
+  sem compileRtpplStmts : RtpplTopEnv -> Expr -> [RtpplStmt] -> Expr
+  sem compileRtpplStmts env inexpr =
   | [stmt] ++ tl ->
-    bind_
-      (compileRtpplStmt stmt)
-      (compileRtpplStmts inexpr tl)
+    bind_ (compileRtpplStmt env stmt) (compileRtpplStmts env inexpr tl)
   | [] ->
     inexpr
 
-  sem compileRtpplStmt : RtpplStmt -> Expr
-  sem compileRtpplStmt =
+  sem compileRtpplStmt : RtpplTopEnv -> RtpplStmt -> Expr
+  sem compileRtpplStmt env =
   | BindingRtpplStmt {id = {v = id}, ty = ty, e = e, info = info} ->
     let tyBody = compileRtpplType ty in
     let body = compileRtpplExpr e in
@@ -141,6 +453,38 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
     TmWeight {weight = neginf, ty = _tyuk info, info = info}
   | ResampleRtpplStmt {info = info} ->
     TmResample {ty = _tyuk info, info = info}
+  -- NOTE(larshum, 2023-04-17): We introduce an intermediate Expr node for
+  -- reading and writing. These are eliminated when specializing to a task.
+  | ReadRtpplStmt {port = {v = portStr}, dst = {v = dst}, info = info} ->
+    let portId = _getPortIdentifier env.topId portStr in
+    match mapLookup portId env.portTypes with Some ty then
+      TmLet {
+        ident = dst, tyAnnot = _tyuk info, tyBody = _tyuk info,
+        body = TmRead {portId = portStr, tyData = compileRtpplType ty,
+                       ty = _tyuk info, info = info},
+        inexpr = uunit_, ty = _tyuk info, info = info }
+    else
+      errorSingle [info] "Reference to undefined port"
+  | WriteRtpplStmt {src = src, port = {v = portStr}, delay = delay, info = info} ->
+    let delayExpr =
+      match delay with Some d then compileRtpplExpr d
+      else TmConst {val = CInt {val = 0}, ty = _tyuk info, info = info}
+    in
+    let portId = _getPortIdentifier env.topId portStr in
+    match mapLookup portId env.portTypes with Some ty then
+      TmLet {
+        ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyuk info,
+        body = TmWrite { portId = portStr, src = compileRtpplExpr src
+                       , delay = delayExpr, tyData = compileRtpplType ty
+                       , ty = _tyuk info, info = info },
+        inexpr = uunit_, ty = _tyuk info, info = info }
+    else
+      errorSingle [info] "Reference to undefined port"
+  | SdelayRtpplStmt {e = e, info = info} ->
+    TmLet {
+      ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmSdelay { e = compileRtpplExpr e, ty = _tyuk info, info = info },
+      inexpr = uunit_, ty = _tyuk info, info = info }
   | LoopPlusStmtRtpplStmt {id = loopVar, loop = loopStmt, info = info} ->
     let _var = _var info in
     let loopId = nameSym "loopFn" in
@@ -163,7 +507,7 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
           lhs = TmApp {
             lhs = _var loopId, rhs = tailExpr, ty = _tyuk info, info = info },
           rhs = _var tailId, ty = _tyuk info, info = info } in
-        let thn = compileRtpplStmts recCall body in
+        let thn = compileRtpplStmts env recCall body in
         let seqId = nameSym "s" in
         let body = TmLam {
           ident = seqId, tyAnnot = _tyuk info, tyIdent = _tyuk info,
@@ -176,7 +520,7 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
         let recCall = TmApp {
           lhs = _var loopId, rhs = tailExpr, ty = _tyuk info,
           info = info } in
-        (compileRtpplStmts recCall body, None ())
+        (compileRtpplStmts env recCall body, None ())
       case WhileCondRtpplLoopStmt {cond = cond, body = body} then
         let recCall = TmApp {
           lhs = _var loopId, rhs = tailExpr, ty = _tyuk info, info = info
@@ -184,7 +528,7 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
         let body = TmMatch {
           target = compileRtpplExpr cond,
           pat = PatBool {val = true, ty = _tyuk info, info = info},
-          thn = compileRtpplStmts recCall body,
+          thn = compileRtpplStmts env recCall body,
           els = tailExpr, ty = _tyuk info, info = info
         } in
         (body, None ())
@@ -224,8 +568,8 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
     let cond = TmMatch {
       target = compileRtpplExpr cond,
       pat = PatBool {val = true, ty = TyBool {info = info}, info = info},
-      thn = compileRtpplStmts tailExpr thn,
-      els = compileRtpplStmts tailExpr els,
+      thn = compileRtpplStmts env tailExpr thn,
+      els = compileRtpplStmts env tailExpr els,
       ty = _tyuk info, info = info } in
     let targetId =
       match condVar with Some {v = condVarId} then condVarId
@@ -396,115 +740,203 @@ lang RtpplDPPLCompile = RtpplAst + DPPLParser + MExprAst
     in
     let strTy = TySeq {ty = TyChar {info = info}, info = info} in
     TmSeq {tms = map toCharConst s, ty = strTy, info = info}
+end
 
-  sem compileRtpplType : RtpplType -> Type
-  sem compileRtpplType =
-  | IntRtpplType {info = info} ->
-    TyInt {info = info}
+lang RtpplCompileGenerated = RtpplCompileType
+  sem rtpplReadTypeName : RuntimeIds -> RtpplType -> Name
+  sem rtpplReadTypeName rtIds =
   | FloatRtpplType {info = info} ->
-    TyFloat {info = info}
-  | BoolRtpplType {info = info} ->
-    TyBool {info = info}
-  | UnitRtpplType {info = info} ->
-    _tyunit info
-  | SeqRtpplType {ty = ty, info = info} ->
-    TySeq {ty = compileRtpplType ty, info = info}
-  | DistRtpplType {ty = ty, info = info} ->
-    TyDist {ty = compileRtpplType ty, info = info}
-  | AliasRtpplType {id = {v = id}, next = next, info = info} ->
-    let args =
-      match next with DirectRtpplTypeNoIdent _ then []
-      else match next with ApplicationRtpplTypeNoIdent {args = args} then args
-      else errorSingle [info] "Unsupported type alias form"
+    rtIds.readFloat
+  | DistRtpplType {ty = RecordRtpplType {fields = fields}, info = info} ->
+    let isFloatField = lam field.
+      match field with {ty = FloatRtpplType _} then true
+      else false
     in
-    let appArg = lam acc. lam arg.
-      TyApp { lhs = acc, rhs = compileRtpplType arg, info = info }
+    if forAll isFloatField fields then
+      rtIds.readDistFloatRecord
+    else
+      errorSingle [info] "Reading from ports of this type is not supported"
+  | ty ->
+    errorSingle [get_RtpplType_info ty] "Reading from ports of this type is not supported"
+
+  sem generateInitCode : CompileEnv -> RtpplTask -> Expr
+  sem generateInitCode env =
+  | TaskRtpplTask {id = {v = id}, templateId = {v = tid}, info = info} ->
+    let toInputSeqFieldType = lam inputPort.
+      match inputPort with {id = id, ty = ty} in
+      let tsv =
+        let ids = getRuntimeIds () in
+        ids.tsv
+      in
+      let fieldType = TySeq {
+        ty = TyApp {
+          lhs = TyCon {ident = tsv, info = info},
+          rhs = compileRtpplType ty, info = info },
+        info = info
+      } in
+      (stringToSid id, fieldType)
     in
-    foldl appArg (TyCon {ident = id, info = info}) args
-  | RecordRtpplType {fields = fields, info = info} ->
-    let toMExprField = lam field.
-      match field with {id = {v = id}, ty = ty} in
-      (stringToSid id, compileRtpplType ty)
+    let toUpdateFieldExpr = lam inputPort.
+      match inputPort with {id = portId, ty = ty} in
+      let rtIds = getRuntimeIds () in
+      let readId = rtpplReadTypeName rtIds ty in
+      ( stringToSid portId
+      , TmApp {
+          lhs = TmConst {val = CUnsafeCoerce (), ty = _tyuk info, info = info},
+          rhs = TmApp {
+            lhs = _var info readId,
+            rhs = _str info (_getPortIdentifier id portId),
+            ty = _tyuk info, info = info },
+          ty = _tyuk info, info = info } )
     in
-    TyRecord {fields = mapFromSeq cmpSID (map toMExprField fields), info = info}
-  | FunctionRtpplType {from = from, to = to, info = info} ->
-    TyArrow {from = compileRtpplType from, to = compileRtpplType to, info = info}
+    match mapLookup tid env.ports with Some ports then
+      let inputPorts = filter (lam p. p.isInput) ports in
+      let recFields = mapFromSeq cmpSID (map toInputSeqFieldType inputPorts) in
+      let updFields = mapFromSeq cmpSID (map toUpdateFieldExpr inputPorts) in
+      let initFields =
+        mapMapWithKey
+          (lam. lam. TmSeq {tms = [], ty = _tyuk info, info = info})
+          updFields
+      in
+      let inputRecordTy = TyCon {ident = inputRecordId, info = info} in
+      let inputSeqsInit = TmApp {
+        lhs = TmConst {val = CRef (), ty = _tyuk info, info = info},
+        rhs = TmRecord {bindings = initFields, ty = inputRecordTy, info = info},
+        ty = _tyuk info, info = info
+      } in
+      bindall_ [
+        TmType {
+          ident = inputRecordId, params = [],
+          tyIdent = TyRecord {fields = recFields, info = info},
+          inexpr = uunit_, ty = _tyuk info, info = info },
+        TmLet {
+          ident = inputSeqsId, tyAnnot = _tyuk info, tyBody = _tyuk info,
+          body = inputSeqsInit, inexpr = uunit_, ty = _tyuk info, info = info },
+        TmLet {
+          ident = updateInputsId, tyAnnot = _tyuk info, tyBody = _tyuk info,
+          body = TmLam {
+            ident = nameNoSym "", tyAnnot = _tyuk info, tyIdent = _tyuk info,
+            body = TmApp {
+              lhs = TmApp {
+                lhs = TmConst {val = CModRef (), ty = _tyuk info, info = info},
+                rhs = _var info inputSeqsId, ty = _tyuk info, info = info },
+              rhs = TmRecord {bindings = updFields, ty = inputRecordTy, info = info},
+              ty = _tyuk info, info = info },
+            ty = _tyuk info, info = info },
+          inexpr = uunit_, ty = _tyuk info, info = info } ]
+    else
+      errorSingle [info] "Compiler error in 'generateInitCode'"
 end
 
 lang RtpplCompile =
   RtpplAst + RtpplDPPLCompile + MExprLambdaLift + MExprExtract +
-  MExprEliminateDuplicateCode + MExprFindSym
-
-  type Env = {
-    ast : Expr,
-    llSolutions : Map Name (Map Name Type),
-    ports : Map Name ([RtpplPort], [RtpplPort]),
-    topVarEnv : Map String Name
-  }
+  MExprEliminateDuplicateCode + RtpplCompileGenerated
 
   type CompileResult = {
     tasks : Map Name Expr,
     ports : [String]
   }
 
-  -- NOTE(larshum, 2023-04-11): This function produces a string uniquely
-  -- identifying a port belongning to a specific task.
-  sem getPortIdentifier : Name -> RtpplPort -> String
-  sem getPortIdentifier taskId =
-  | InputRtpplPort {id = {v = id}}
-  | OutputRtpplPort {id = {v = id}}
-  | ActuatorOutputRtpplPort {id = {v = id}} ->
-    join [nameGetStr taskId, "-", id]
+  sem toPortData : RtpplPort -> PortData
+  sem toPortData =
+  | InputRtpplPort {id = {v = id}, ty = ty} ->
+    {id = id, isInput = true, ty = ty}
+  | OutputRtpplPort {id = {v = id}, ty = ty}
+  | ActuatorOutputRtpplPort {id = {v = id}, ty = ty} ->
+    {id = id, isInput = false, ty = ty}
 
   sem compileRtpplToExpr : [RtpplTop] -> (Map Name (Map Name Type), Expr)
   sem compileRtpplToExpr =
   | tops ->
-    let rtpplExpr = bindall_ (map compileRtpplTop tops) in
-    let runtimePath = concat corepplSrcLoc "/rtppl/rtppl-runtime.mc" in
-    let parseOpts =
-      {defaultBootParserParseMCoreFileArg with keepUtests = false,
-                                               eliminateDeadCode = false} in
-    let runtime = symbolize (parseMCoreFile parseOpts runtimePath) in
+    match mapAccumL compileRtpplTop (initTopEnv ()) tops with (_, exprs) in
+    let rtpplExpr = bindall_ exprs in
+    let runtime = readRuntime () in
     let runtimeSymEnv = addTopNames symEnvEmpty runtime in
     let rtpplExpr = symbolizeExpr runtimeSymEnv rtpplExpr in
     let ast = eliminateDuplicateCode (bind_ runtime rtpplExpr) in
     let ast = typeCheck ast in
     liftLambdasWithSolutions ast
 
+  sem insertBindingsAfter : (Name -> Bool) -> Expr -> Expr -> Expr
+  sem insertBindingsAfter p binds =
+  | TmLet t ->
+    if p t.ident then
+      TmLet {t with inexpr = bind_ binds t.inexpr}
+    else
+      TmLet {t with inexpr = insertBindingsAfter p binds t.inexpr}
+  | t -> smap_Expr_Expr (insertBindingsAfter p binds) t
+
+  sem specializeRtpplExprs : CompileEnv -> Map String PortData -> Name -> Expr -> Expr
+  sem specializeRtpplExprs env portMap taskId =
+  | TmRead {portId = portId, info = info} ->
+    let x = nameNoSym "x" in
+    let readPat = PatRecord {
+      bindings = mapFromSeq cmpSID [
+        ( stringToSid portId
+        , PatNamed {ident = PName x, ty = _tyuk info, info = info} ) ],
+      ty = _tyuk info, info = info
+    } in
+    TmMatch {
+      target = TmApp {
+        lhs = TmConst {val = CDeRef (), ty = _tyuk info, info = info},
+        rhs = _var info inputSeqsId, ty = _tyuk info, info = info },
+      pat = readPat, thn = _var info x,
+      els = TmNever {ty = _tyuk info, info = info},
+      ty = _tyuk info, info = info }
+  | TmWrite {portId = portId, src = src, delay = delay, info = info} ->
+    compilePortWrite env portMap taskId info src delay portId
+  | TmSdelay {e = e, info = info} ->
+    let rtIds = getRuntimeIds () in
+    let sdelayId = rtIds.sdelay in
+    let liftedArgs = getCapturedTopLevelVars env sdelayId in
+    let sdelayFun = appSeq_ (_var info sdelayId) liftedArgs in
+    TmApp {
+      lhs = TmApp {
+        lhs = sdelayFun,
+        rhs = _var info updateInputsId,
+        ty = _tyuk info, info = info },
+      rhs = e, ty = _tyuk info, info = info }
+  | t -> smap_Expr_Expr (specializeRtpplExprs env portMap taskId) t
+
   -- NOTE(larshum, 2023-04-11): The AST of each task is produced by performing
   -- extraction from a common AST containing all definitions from the RTPPL
   -- program combined with the shared runtime.
-  sem compileTask : Env -> CompileResult -> RtpplTask -> CompileResult
+  sem compileTask : CompileEnv -> CompileResult -> RtpplTask -> CompileResult
   sem compileTask env acc =
-  | TaskRtpplTask {id = {v = id}, templateId = {v = tid}, args = args,
-                   info = info} ->
-    -- TODO(larshum, 2023-04-11): This only works assuming the name of the
-    -- function used as a template is distinct from names used in the runtime.
+  | (TaskRtpplTask {id = {v = id}, templateId = {v = tid}, args = args,
+                    info = info}) & task ->
+    let runtimeIds = getRuntimeIds () in
+    -- TODO(larshum, 2023-04-11): This only works assuming the (escaped) name
+    -- of the function used as a template is distinct from names used in the
+    -- runtime.
     let templateName = _rtpplEscapeName tid in
-    match findNamesOfStrings [nameGetStr templateName, "rtpplRuntimeInit"] env.ast
-    with [Some templateId, Some rtpplRuntimeInitId] then
-      match mapLookup tid env.ports with Some (inports, outports) then
+    match findName (nameGetStr templateName) env.ast with Some templateId then
+      match mapLookup tid env.ports with Some ports then
         let liftedArgsTask = getCapturedTopLevelVars env templateId in
-        let inputPorts = map (getPortIdentifier id) inports in
-        let outputPorts = map (getPortIdentifier id) outports in
-        let portNames = concat inputPorts outputPorts in
         let args = join
-          [ liftedArgsTask, map str_ portNames
+          [ liftedArgsTask
           , if null args then [var_ ""] else map compileRtpplExpr args ]
         in
         let taskRun = appSeq_ (nvar_ templateId) args in
-        let liftedArgsInit = getCapturedTopLevelVars env rtpplRuntimeInitId in
+        let liftedArgsInit = getCapturedTopLevelVars env runtimeIds.init in
         let initArgs =
           concat
             liftedArgsInit
-            [ seq_ (map str_ inputPorts)
-            , seq_ (map str_ outputPorts)
-            , ulam_ "" taskRun ]
+            [ _var info updateInputsId, ulam_ "" taskRun ]
         in
-        let tailExpr = appSeq_ (nvar_ rtpplRuntimeInitId) initArgs in
+        let tailExpr = appSeq_ (nvar_ runtimeIds.init) initArgs in
+        -- NOTE(larshum, 2023-04-17): We generate the task-specific runtime
+        -- code and insert it directly after the pre-generated runtime.
+        let initId = let x = getRuntimeIds () in x.init in
+        let initExpr = generateInitCode env task in
+        let ast = insertBindingsAfter (nameEq initId) initExpr env.ast in
+        let portMap = mapFromSeq cmpString (map (lam p. (p.id, p)) ports) in
+        let ast = specializeRtpplExprs env portMap id ast in
         let ast =
-          extractAst (identifiersInExpr (setEmpty nameCmp) tailExpr) env.ast
+          symbolize
+            (extractAst (identifiersInExpr (setEmpty nameCmp) tailExpr) ast)
         in
+        let portNames = map (lam p. _getPortIdentifier id p.id) ports in
         {acc with tasks = mapInsert id (bind_ ast tailExpr) acc.tasks,
                   ports = concat acc.ports portNames}
       else
@@ -520,51 +952,19 @@ lang RtpplCompile =
   | t ->
     sfold_Expr_Expr identifiersInExpr acc t
 
-  sem getCapturedTopLevelVars : Env -> Name -> [Expr]
-  sem getCapturedTopLevelVars env =
-  | id ->
-    -- NOTE(larshum, 2023-04-12): We find the top-level names that
-    -- correspond to the names of the captured parameters.
-    match mapLookup id env.llSolutions with Some argMap then
-      let argIds = mapKeys argMap in
-      map
-        (lam id.
-          let s = nameGetStr id in
-          match mapLookup s env.topVarEnv with Some topLevelId then
-            nvar_ topLevelId
-          else
-            let msg = join [
-              "Could not find top-level binding of captured parameter ",
-              nameGetStr id
-            ] in
-            error msg)
-        argIds
-    else error "Could not find lambda lifting solution for task"
-
   -- TODO(larshum, 2023-04-11): How to handle the parameters passed to main?
-  sem compileMain : Env -> RtpplMain -> CompileResult
+  sem compileMain : CompileEnv -> RtpplMain -> CompileResult
   sem compileMain env =
   | MainRtpplMain {params = [], tasks = tasks, connections = connections} ->
     let emptyResult = { tasks = mapEmpty nameCmp, ports = [] } in
     foldl (compileTask env) emptyResult tasks
 
-  sem collectPortsPerTop : Map Name ([RtpplPort], [RtpplPort]) -> RtpplTop ->
-                           Map Name ([RtpplPort], [RtpplPort])
+  sem collectPortsPerTop : Map Name [PortData] -> RtpplTop -> Map Name [PortData]
   sem collectPortsPerTop portMap =
   | FunctionDefRtpplTop {id = {v = id}, body = {ports = ![] & ports}} ->
-    let partition = partitionPortsByDirection ports in
-    mapInsert id partition portMap
+    mapInsert id (map toPortData ports) portMap
   | _ ->
     portMap
-
-  sem partitionPortsByDirection : [RtpplPort] -> ([RtpplPort], [RtpplPort])
-  sem partitionPortsByDirection =
-  | ports ->
-    let isInputPort = lam port.
-      match port with InputRtpplPort _ then true
-      else false
-    in
-    partition isInputPort ports
 
   -- NOTE(larshum, 2023-04-11): One RTPPL program is compiled to multiple
   -- Expr's, each of which correspond to a task declared in the main section of
@@ -573,7 +973,6 @@ lang RtpplCompile =
   sem compileRtpplProgram =
   | ProgramRtpplProgram p ->
     match compileRtpplToExpr p.tops with (llSolutions, coreExpr) in
-    let ports = foldl collectPortsPerTop (mapEmpty nameCmp) p.tops in
     let env = {
       ast = coreExpr,
       llSolutions = llSolutions,

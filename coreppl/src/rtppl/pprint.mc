@@ -104,9 +104,19 @@ lang RtpplPrettyPrint = RtpplAst
   | InferRtpplStmt {id = {v = id}, model = model} ->
     join [pprintIndent indent, "infer ", nameGetStr id, " -> ", pprintRtpplExpr indent model]
   | DegenerateRtpplStmt _ ->
-    "degenerate"
+    join [pprintIndent indent, "degenerate"]
   | ResampleRtpplStmt _ ->
-    "resample"
+    join [pprintIndent indent, "resample"]
+  | ReadRtpplStmt {port = {v = portId}, dst = {v = dst}} ->
+    join [pprintIndent indent, "read ", portId, " to ", nameGetStr dst]
+  | WriteRtpplStmt {src = src, port = {v = portId}, delay = delay} ->
+    let delayStr =
+      match delay with Some d then concat "delay " (pprintRtpplExpr indent d)
+      else ""
+    in
+    join [pprintIndent indent, "write ", pprintRtpplExpr indent src, " to ", portId, delayStr]
+  | SdelayRtpplStmt {e = e} ->
+    join [pprintIndent indent, "sdelay ", pprintRtpplExpr indent e]
   | LoopPlusStmtRtpplStmt {id = loopVar, loop = loopTerm, info = info} ->
     let loopVarStr =
       match loopVar with Some {v = loopVarId} then

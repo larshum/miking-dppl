@@ -14,6 +14,7 @@ include "json.mc"
 include "mexpr/shallow-patterns.mc"
 include "mexpr/type-check.mc"
 include "ocaml/mcore.mc"
+include "tuning/hole-cfa.mc"
 
 let _rts = lam.
   use LoadRuntime in
@@ -108,8 +109,8 @@ lang Rtppl =
       let msg = join ["Could not create pipe for port ", path, ": ", stderr] in
       error msg
 
-  sem buildTaskMExpr : String -> Expr -> ()
-  sem buildTaskMExpr filepath =
+  sem buildTaskMExpr : RtpplOptions -> String -> Expr -> ()
+  sem buildTaskMExpr options filepath =
   | ast ->
     -- TODO(larshum, 2023-04-12): This code is essentially duplicated from the
     -- current compilation approach in mi. It should be directly available in a
@@ -121,16 +122,22 @@ lang Rtppl =
       sysChmodWriteAccessFile filepath;
       p.cleanup ()
     in
+    -- NOTE(larshum, 2023-04-18): If enabled, writes the MExpr AST of the task
+    -- to a file using the filepath with a '.mc' suffix.
+    (if options.debugCompileMExpr then
+      writeFile (concat filepath ".mc") (expr2str ast)
+    else ());
     let ast = typeCheck ast in
     let ast = lowerAll ast in
     compileMCore ast (mkEmptyHooks compileOCaml)
 
-  sem buildTaskDppl : String -> Expr -> ()
-  sem buildTaskDppl filepath =
+  sem buildTaskDppl : RtpplOptions -> String -> Expr -> ()
+  sem buildTaskDppl options filepath =
   | ast ->
     let runtimeData = _rts () in
-    let ast = mexprCompile default runtimeData ast in
-    buildTaskMExpr filepath ast
+    let opts = {default with debugMExprCompile = false} in
+    let ast = mexprCompile opts runtimeData ast in
+    buildTaskMExpr options filepath ast
 
   -- TODO(larshum, 2023-04-12): For now, we just use the mi compiler
   -- directly. When a task makes use of PPL constructs, we should use the
@@ -139,7 +146,7 @@ lang Rtppl =
   sem buildTaskExecutable options taskId =
   | taskAst ->
     let path = optJoinPath options.outputPath (nameGetStr taskId) in
-    buildTaskDppl path taskAst
+    buildTaskDppl options path taskAst
 
   sem buildRtppl : RtpplOptions -> RtpplProgram -> CompileResult -> ()
   sem buildRtppl options program =
@@ -161,7 +168,7 @@ let program = parseRtpplExn options.file content in
 else ());
 validateRtpplProgram program;
 let result = compileRtpplProgram program in
-(if options.debugCompile then
+(if options.debugCompileDppl then
   mapMapWithKey
     (lam id. lam ast.
       printLn (join ["Task ", nameGetStr id, ":"]);

@@ -83,8 +83,6 @@ let delayBy : Ref Timespec -> Int -> Int = lam logicalTime. lam delay.
 
 type TSV a = (Timespec, a)
 
--- TODO(larshum, 2023-04-13): These functions involve mutability (deref) which
--- is not supported inside DPPL models (because of CFA).
 let tsvTimestamp : TSV Unknown -> Int = lam tsv.
   let lt = deref logicalTime in
   timespecToNanos (diffTimespec tsv.0 lt)
@@ -93,67 +91,53 @@ let tsvCreate : Int -> Unknown -> TSV Unknown = lam offset. lam value.
   let lt = deref logicalTime in
   (addTimespec lt (nanosToTimespec offset), value)
 
--- TODO(larshum, 2023-04-11): At compile-time, we know exactly which ports we
--- have, so we could improve performance by generating code for each declared
--- port instead of placing them in a map. However, this approach is much
--- simpler, so I will use it for now.
-let inputSequences : Ref (Map String [TSV Float]) = ref (mapEmpty cmpString)
-
--- Updates the state of all input sequences by clearing the old values and
--- inserting new ones. Before the input sequences are made available to the
--- RTPPL code, they are transformed such that all timestamps associated with
--- inputs become relative to the current logical time.
-let updateInputSequences = lam.
-  modref inputSequences
-    (mapMapWithKey
-      (lam id. lam. externalReadFloatPipe id)
-      (deref inputSequences))
-
-let sdelay : Int -> Int = lam delay.
+let sdelay : (() -> ()) -> Int -> Int = lam f. lam delay.
   let overrun = delayBy logicalTime delay in
-  updateInputSequences ();
+  f ();
   overrun
 
 -- TODO(larshum, 2023-04-11): Add support for payloads other than
 -- floating-point numbers.
-let readPort : String -> [TSV Float] = lam id.
-  match mapLookup id (deref inputSequences) with Some payload then
-    payload
-  else error (join ["Could not find inputs for port ", id])
+let rtpplReadFloatPipe : String -> [TSV Float] = lam id.
+  externalReadFloatPipe id
 
-let writePort : String -> Float -> Int -> () = lam id. lam msg. lam offset.
-  let intervalTime = millisToTimespec offset in
-  let actuationTime = addTimespec (deref logicalTime) intervalTime in
+let rtpplReadDistFloatRecordPipe : String -> [TSV Opaque] = lam id.
+  externalReadDistFloatRecordPipe id
+
+let writeActuationTimespec : Int -> Timespec = lam offset.
+  let intervalTime = nanosToTimespec offset in
+  addTimespec (deref logicalTime) intervalTime
+
+let rtpplWriteFloatPort : String -> Float -> Int -> () =
+  lam id. lam msg. lam offset.
+  let t = writeActuationTimespec offset in
   -- TODO(larshum, 2023-04-11): This function will open and close a FIFO queue
   -- every time it is called, which may be very expensive. Therefore, we should
   -- open them at startup and then store them until shutdown.
-  externalWriteFloatPipe id msg actuationTime
+  externalWriteFloatPipe id msg t
 
-let rtpplRuntimeInit : [String] -> [String] -> (() -> Unknown) -> Unknown =
-  lam inputs. lam outputs. lam cont.
+let rtpplWriteDistFloatRecordPort : String -> Opaque -> Int -> Int -> () =
+  lam id. lam msg. lam nfields. lam offset.
+  let t = writeActuationTimespec offset in
+  externalWriteDistFloatRecordPipe id msg t nfields
 
-  -- Initialize the input sequences used to buffer the results available for
-  -- reading at a certain logical time.
-  let inputSeqs =
-    foldl
-      (lam acc. lam inId.
-        mapInsert inId [] acc)
-      (deref inputSequences) inputs
-  in
-  modref inputSequences inputSeqs;
+let rtpplRuntimeInit : (() -> ()) -> (() -> Unknown) -> () =
+  lam updateInputSequences. lam cont.
 
-  -- TODO(larshum, 2023-04-11): Run a synchronization pass first, where the
-  -- tasks wait for each other to start up. After this pass, we set the current
-  -- logical time to whatever we end up with.
+  -- Initialize the logical time to the current time shown by the clock
+  -- TODO(larshum, 2023-04-17): This value should be decided by a synchronized
+  -- startup step.
   modref logicalTime (clockGetTime ());
 
-  -- Fill all sequences with currently available inputs before handing over
-  -- control to the RTPPL code.
-  -- TODO(larshum, 2023-04-11): Should we empty the FIFOs here instead? As we
-  -- may not expect input during our first observation.
+  -- Updates the contents of all input sequences before handing over control to
+  -- the task. As this function is generated at compile-time, we invoke it via
+  -- a higher-order function argument.
   updateInputSequences ();
 
-  cont ()
+  -- Hand over control to the task
+  cont ();
+
+  ()
 
 -- NOTE(larshum, 2023-04-14): The below functions are exposed to the DSL code,
 -- but should probably be handled differently.
