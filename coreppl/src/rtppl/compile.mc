@@ -1,4 +1,5 @@
 include "ast.mc"
+include "pprint.mc"
 include "../parser.mc"
 include "../src-location.mc"
 
@@ -164,7 +165,7 @@ lang RtpplCompileBase =
     else error "Could not find lambda lifting solution for task"
 end
 
-lang RtpplCompileReadWrite =
+lang RtpplCompileExprExtension =
   RtpplCompileBase + MExprAst + MExprSym + MExprTypeCheck
 
   syn Expr =
@@ -275,28 +276,28 @@ lang RtpplCompileType = RtpplCompileBase + DPPLParser
     TyArrow {from = compileRtpplType from, to = compileRtpplType to, info = info}
 end
 
-lang RtpplPortWriteCompile = RtpplCompileBase + RtpplCompileType
-  sem compilePortWrite : CompileEnv -> Map String PortData -> Name -> Info -> Expr
-                      -> Expr -> String -> Expr
-  sem compilePortWrite env portMap taskId info src delayExpr =
-  | portStr ->
-    match mapLookup portStr portMap with Some data then
-      let msgExpr = TmApp {
-        lhs = TmConst {val = CUnsafeCoerce (), ty = _tyuk info, info = info},
-        rhs = src, ty = _tyuk info, info = info
-      } in
-      let rtIds = getRuntimeIds () in
-      let portId = _getPortIdentifier taskId portStr in
-      TmApp {
-        lhs = compilePortWriteH env rtIds info msgExpr portId data.ty,
-        rhs = delayExpr, ty = _tyuk info, info = info }
-    else
-      errorSingle [info] (concat "Reference to undefined port " portStr)
+lang RtpplPortWriteCompile =
+  RtpplCompileBase + RtpplCompileType + MExprPrettyPrint +
+  RtpplCompileExprExtension
+
+  sem compilePortWrite : CompileEnv -> Name -> Expr -> Expr
+  sem compilePortWrite env taskId =
+  | TmWrite {portId = portStr, src = src, delay = delay, tyData = tyData,
+             info = info} ->
+    let msgExpr = TmApp {
+      lhs = TmConst {val = CUnsafeCoerce (), ty = _tyuk info, info = info},
+      rhs = src, ty = _tyuk info, info = info
+    } in
+    let rtIds = getRuntimeIds () in
+    let portId = _getPortIdentifier taskId portStr in
+    TmApp {
+      lhs = compilePortWriteH env rtIds info msgExpr portId tyData,
+      rhs = delay, ty = _tyuk info, info = info }
 
   sem compilePortWriteH : CompileEnv -> RuntimeIds -> Info -> Expr -> String
-                       -> RtpplType -> Expr
+                       -> Type -> Expr
   sem compilePortWriteH env rtIds info msg portId =
-  | FloatRtpplType _ ->
+  | TyFloat _ ->
     let writeId = rtIds.writeFloat in
     let liftedArgs = getCapturedTopLevelVars env writeId in
     let writeFun = appSeq_ (_var info writeId) liftedArgs in
@@ -305,16 +306,16 @@ lang RtpplPortWriteCompile = RtpplCompileBase + RtpplCompileType
         lhs = writeFun,
         rhs = _str info portId, ty = _tyuk info, info = info },
       rhs = msg, ty = _tyuk info, info = info }
-  | DistRtpplType {ty = RecordRtpplType {fields = fields}} ->
-    let isFloatField = lam field.
-      match field with {ty = FloatRtpplType _} then true
+  | (TyDist {ty = TyRecord {fields = fields}}) & ty ->
+    let isFloatField = lam fieldTy.
+      match fieldTy with TyFloat _ then true
       else false
     in
     let writeId = rtIds.writeDistFloatRecord in
     -- NOTE(larshum, 2023-04-17): For now, we only support distributions
     -- over a record where all fields are floating-point values.
-    if forAll isFloatField fields then
-      let nfields = length fields in
+    if forAll isFloatField (mapValues fields) then
+      let nfields = mapSize fields in
       let liftedArgs = getCapturedTopLevelVars env writeId in
       let writeFun = appSeq_ (_var info writeId) liftedArgs in
       TmApp {
@@ -325,16 +326,19 @@ lang RtpplPortWriteCompile = RtpplCompileBase + RtpplCompileType
           rhs = msg, ty = _tyuk info, info = info },
         rhs = TmConst {val = CInt {val = nfields}, ty = _tyuk info, info = info},
         ty = _tyuk info, info = info }
-    else compilePortWriteDefault info
-  | _ -> compilePortWriteDefault info
+    else compilePortWriteDefault info ty
+  | ty -> compilePortWriteDefault info ty
 
-  sem compilePortWriteDefault : Info -> Expr
-  sem compilePortWriteDefault =
-  | info -> errorSingle [info] "Writing to ports of this type is not supported"
+  sem compilePortWriteDefault : Info -> Type -> Expr
+  sem compilePortWriteDefault info =
+  | ty ->
+    let tyStr = type2str ty in
+    let msg = join ["Writing to ports of type ", tyStr, " is not supported"] in
+    errorSingle [info] msg
 end
 
 lang RtpplDPPLCompile =
-  RtpplPortWriteCompile + RtpplCompileReadWrite + DPPLParser
+  RtpplPortWriteCompile + RtpplCompileExprExtension + DPPLParser
 
   sem compileRtpplTop : RtpplTopEnv -> RtpplTop -> (RtpplTopEnv, Expr)
   sem compileRtpplTop env =
@@ -866,9 +870,9 @@ lang RtpplCompile =
       TmLet {t with inexpr = insertBindingsAfter p binds t.inexpr}
   | t -> smap_Expr_Expr (insertBindingsAfter p binds) t
 
-  sem specializeRtpplExprs : CompileEnv -> Map String PortData -> Name -> Expr -> Expr
-  sem specializeRtpplExprs env portMap taskId =
-  | TmRead {portId = portId, info = info} ->
+  sem specializeRtpplExprs : CompileEnv -> Name -> Expr -> Expr
+  sem specializeRtpplExprs env taskId =
+  | TmRead {portId = portId, tyData = tyData, info = info} ->
     let x = nameNoSym "x" in
     let readPat = PatRecord {
       bindings = mapFromSeq cmpSID [
@@ -882,9 +886,9 @@ lang RtpplCompile =
         rhs = _var info inputSeqsId, ty = _tyuk info, info = info },
       pat = readPat, thn = _var info x,
       els = TmNever {ty = _tyuk info, info = info},
-      ty = _tyuk info, info = info }
-  | TmWrite {portId = portId, src = src, delay = delay, info = info} ->
-    compilePortWrite env portMap taskId info src delay portId
+      ty = tyData, info = info }
+  | TmWrite _ & writeExpr ->
+    compilePortWrite env taskId writeExpr
   | TmSdelay {e = e, info = info} ->
     let rtIds = getRuntimeIds () in
     let sdelayId = rtIds.sdelay in
@@ -896,7 +900,7 @@ lang RtpplCompile =
         rhs = _var info updateInputsId,
         ty = _tyuk info, info = info },
       rhs = e, ty = _tyuk info, info = info }
-  | t -> smap_Expr_Expr (specializeRtpplExprs env portMap taskId) t
+  | t -> smap_Expr_Expr (specializeRtpplExprs env taskId) t
 
   -- NOTE(larshum, 2023-04-11): The AST of each task is produced by performing
   -- extraction from a common AST containing all definitions from the RTPPL
@@ -930,8 +934,7 @@ lang RtpplCompile =
         let initId = let x = getRuntimeIds () in x.init in
         let initExpr = generateInitCode env task in
         let ast = insertBindingsAfter (nameEq initId) initExpr env.ast in
-        let portMap = mapFromSeq cmpString (map (lam p. (p.id, p)) ports) in
-        let ast = specializeRtpplExprs env portMap id ast in
+        let ast = specializeRtpplExprs env id ast in
         let ast =
           symbolize
             (extractAst (identifiersInExpr (setEmpty nameCmp) tailExpr) ast)
