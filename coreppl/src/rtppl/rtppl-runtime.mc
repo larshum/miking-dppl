@@ -96,13 +96,11 @@ let sdelay : (() -> ()) -> Int -> Int = lam f. lam delay.
   f ();
   overrun
 
--- TODO(larshum, 2023-04-11): Add support for payloads other than
--- floating-point numbers.
-let rtpplReadFloatPipe : String -> [TSV Float] = lam id.
+let rtpplReadFloatPipe = lam id.
   externalReadFloatPipe id
 
-let rtpplReadDistFloatRecordPipe : String -> [TSV Opaque] = lam id.
-  externalReadDistFloatRecordPipe id
+let rtpplReadDistFloatRecordPipe = lam id. lam nfields.
+  externalReadDistFloatRecordPipe id nfields
 
 let writeActuationTimespec : Int -> Timespec = lam offset.
   let intervalTime = nanosToTimespec offset in
@@ -116,7 +114,7 @@ let rtpplWriteFloatPort : String -> Float -> Int -> () =
   -- open them at startup and then store them until shutdown.
   externalWriteFloatPipe id msg t
 
-let rtpplWriteDistFloatRecordPort : String -> Opaque -> Int -> Int -> () =
+let rtpplWriteDistFloatRecordPort =
   lam id. lam msg. lam nfields. lam offset.
   let t = writeActuationTimespec offset in
   externalWriteDistFloatRecordPipe id msg t nfields
