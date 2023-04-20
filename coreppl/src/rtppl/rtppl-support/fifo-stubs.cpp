@@ -88,6 +88,7 @@ void write_message(int fd, const payload& p) {
   while (count < p.size) {
     int bytes_written = write(fd, (void*)&p.data[count], p.size - count);
     if (bytes_written <= 0) {
+      if (errno == EAGAIN) continue;
       fprintf(stderr, "Error writing message: %s\n", strerror(errno));
       exit(1);
     }
@@ -192,22 +193,14 @@ payload write_dist_float_record_payload(value d, value ts, value nfields_val) {
   return p;
 }
 
-int open_pipe(value pipe, int flags) {
+int open_pipe(value pipe) {
   const char *pipe_id = String_val(pipe);
-  int fd = open(pipe_id, flags);
+  int fd = open(pipe_id, O_RDWR | O_NONBLOCK);
   if (fd == -1) {
     fprintf(stderr, "Error: could not open pipe %s\n", pipe_id);
     exit(1);
   }
   return fd;
-}
-
-int open_pipe_nonblock(value pipe) {
-  return open_pipe(pipe, O_RDWR | O_NONBLOCK);
-}
-
-int open_pipe_blocking(value pipe) {
-  return open_pipe(pipe, O_RDWR);
 }
 
 extern "C" {
@@ -216,7 +209,7 @@ extern "C" {
     CAMLparam1(pipe);
     CAMLlocal1(out);
 
-    int fd = open_pipe_nonblock(pipe);
+    int fd = open_pipe(pipe);
     std::vector<payload> input_seq = read_messages(fd);
     close(fd);
 
@@ -230,7 +223,7 @@ extern "C" {
   void write_float_named_pipe_stub(value pipe, value msg, value ts) {
     CAMLparam3(pipe, msg, ts);
 
-    int fd = open_pipe_blocking(pipe);
+    int fd = open_pipe(pipe);
     payload p = write_float_payload(msg, ts);
     write_message(fd, p);
     free(p.data);
@@ -243,7 +236,7 @@ extern "C" {
     CAMLparam2(pipe, nfields_val);
     CAMLlocal1(out);
 
-    int fd = open_pipe_nonblock(pipe);
+    int fd = open_pipe(pipe);
     std::vector<payload> input_seq = read_messages(fd);
     close(fd);
 
@@ -258,7 +251,7 @@ extern "C" {
   void write_dist_float_record_named_pipe_stub(value pipe, value msg, value ts, value nfields) {
     CAMLparam3(pipe, msg, ts);
 
-    int fd = open_pipe_blocking(pipe);
+    int fd = open_pipe(pipe);
     payload p = write_dist_float_record_payload(msg, ts, nfields);
     write_message(fd, p);
     free(p.data);
