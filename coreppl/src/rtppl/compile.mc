@@ -471,9 +471,15 @@ lang RtpplDPPLCompile =
         ty = _tyuk info, info = info},
       rhs = TmConst {val = CFloat {val = 0.0}, ty = _tyuk info, info = info},
       ty = _tyuk info, info = info} in
-    TmWeight {weight = neginf, ty = _tyuk info, info = info}
+    TmLet {
+      ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmWeight {weight = neginf, ty = _tyuk info, info = info},
+      inexpr = uunit_, ty = _tyuk info, info = info }
   | ResampleRtpplStmt {info = info} ->
-    TmResample {ty = _tyuk info, info = info}
+    TmLet {
+      ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmResample {ty = _tyuk info, info = info},
+      inexpr = uunit_, ty = _tyuk info, info = info }
   -- NOTE(larshum, 2023-04-17): We introduce an intermediate Expr node for
   -- reading and writing. These are eliminated when specializing to a task.
   | ReadRtpplStmt {port = {v = portStr}, dst = {v = dst}, info = info} ->
