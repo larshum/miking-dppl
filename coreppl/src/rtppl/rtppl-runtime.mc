@@ -1,7 +1,5 @@
 include "bool.mc"
-include "map.mc"
 include "math.mc"
-include "set.mc"
 include "ext/rtppl-ext.mc"
 
 let nanosPerSec = 1000000000
@@ -156,7 +154,7 @@ let push : [Unknown] -> Unknown -> [Unknown] = lam s. lam elem.
 
 let sort : (Unknown -> Unknown -> Int) -> [Unknown] -> [Unknown] =
   lam cmp. lam s.
-  setToSeq (setOfSeq cmp s)
+  quickSort cmp s
 
 let filter : (Unknown -> Bool) -> [Unknown] -> [Unknown] =
   lam p. lam s.
