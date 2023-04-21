@@ -1,4 +1,5 @@
 include "mexpr/ast-builder.mc"
+include "mexpr/demote-recursive.mc"
 include "mexpr/externals.mc"
 include "mexpr/boot-parser.mc"
 include "mexpr/type.mc"
@@ -60,7 +61,7 @@ end
 lang MExprCompile =
   MExprPPL + Resample + Externals + DPPLParser + DPPLExtract + LoadRuntime +
   Transformation + DPPLKeywordReplace + DPPLTransformDist + MExprSubstitute +
-  MExprANFAll
+  MExprANFAll + MExprDemoteRecursive
 
   sem transformModelAst : Options -> Expr -> Expr
   sem transformModelAst options =
@@ -140,7 +141,7 @@ lang MExprCompile =
         match loadCompiler options method with (_, compile) in
         match mapLookup method runtimes.entries with Some entry then
           let ast = transformModelAst options ast in
-          let ast = compileModel compile entry id model in
+          let ast = compileModel compile entry id {model with ast = ast} in
           removeModelDefinitions ast
         else
           match pprintInferMethod 0 pprintEnvEmpty method with (_, methodStr) in
