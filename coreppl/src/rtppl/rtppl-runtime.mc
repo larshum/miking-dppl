@@ -1,5 +1,6 @@
 include "bool.mc"
 include "math.mc"
+include "string.mc"
 include "ext/rtppl-ext.mc"
 
 let nanosPerSec = 1000000000

@@ -167,7 +167,7 @@ let program = parseRtpplExn options.file content in
   printLn (pprintRtpplProgram program)
 else ());
 validateRtpplProgram program;
-let result = compileRtpplProgram program in
+let result = compileRtpplProgram options program in
 (if options.debugCompileDppl then
   mapMapWithKey
     (lam id. lam ast.

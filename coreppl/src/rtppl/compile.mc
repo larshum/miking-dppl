@@ -38,7 +38,8 @@ lang RtpplCompileBase =
     topId : Name,
     portTypes : Map String RtpplType,
     aliases : Map Name RtpplType,
-    runtimeIds : RuntimeIds
+    runtimeIds : RuntimeIds,
+    options : RtpplOptions
   }
 
   type PortData = {
@@ -92,13 +93,14 @@ lang RtpplCompileBase =
       else
         error "Failed to initialize the compilation environment"
 
-  sem initTopEnv : () -> RtpplTopEnv
+  sem initTopEnv : RtpplOptions -> RtpplTopEnv
   sem initTopEnv =
-  | _ ->
+  | options ->
     { topId = nameNoSym ""
     , portTypes = mapEmpty cmpString
     , aliases = mapEmpty nameCmp
-    , runtimeIds = getRuntimeIds () }
+    , runtimeIds = getRuntimeIds ()
+    , options = options }
 
   sem _tyuk : Info -> Type
   sem _tyuk =
@@ -455,7 +457,7 @@ lang RtpplDPPLCompile =
     TmLet {
       ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
       body = TmInfer {
-        method = BPF {particles = int_ 1000},
+        method = BPF {particles = int_ env.options.particles},
         model = TmLam {
           ident = nameNoSym "", tyAnnot = _tyuk info, tyIdent = _tyuk info,
           body = compileRtpplExpr model, ty = _tyuk info, info = info },
@@ -882,10 +884,12 @@ lang RtpplCompile =
   | ActuatorOutputRtpplPort {id = {v = id}, ty = ty} ->
     {id = id, isInput = false, ty = ty}
 
-  sem compileRtpplToExpr : [RtpplTop] -> (Map Name (Map Name Type), RtpplTopEnv, Expr)
-  sem compileRtpplToExpr =
+  sem compileRtpplToExpr : RtpplOptions -> [RtpplTop]
+                        -> (Map Name (Map Name Type), RtpplTopEnv, Expr)
+  sem compileRtpplToExpr options =
   | tops ->
-    match mapAccumL compileRtpplTop (initTopEnv ()) tops with (topEnv, exprs) in
+    match mapAccumL compileRtpplTop (initTopEnv options) tops
+    with (topEnv, exprs) in
     let rtpplExpr = bindall_ exprs in
     let runtime = readRuntime () in
     let runtimeSymEnv = addTopNames symEnvEmpty runtime in
@@ -1006,10 +1010,10 @@ lang RtpplCompile =
   -- NOTE(larshum, 2023-04-11): One RTPPL program is compiled to multiple
   -- Expr's, each of which correspond to a task declared in the main section of
   -- an RTPPL program.
-  sem compileRtpplProgram : RtpplProgram -> CompileResult
-  sem compileRtpplProgram =
+  sem compileRtpplProgram : RtpplOptions -> RtpplProgram -> CompileResult
+  sem compileRtpplProgram options =
   | ProgramRtpplProgram p ->
-    match compileRtpplToExpr p.tops with (llSolutions, topEnv, coreExpr) in
+    match compileRtpplToExpr options p.tops with (llSolutions, topEnv, coreExpr) in
     let env = {
       ast = coreExpr,
       llSolutions = llSolutions,

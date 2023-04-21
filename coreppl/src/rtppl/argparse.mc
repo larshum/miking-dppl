@@ -5,15 +5,17 @@ type RtpplOptions = {
   debugCompileDppl : Bool,
   debugCompileMExpr : Bool,
   outputPath : String,
-  file : String
+  file : String,
+  particles : Int
 }
 
-let optionsDefault = {
+let rtpplDefaultOptions = {
   debugParse = false,
   debugCompileDppl = false,
   debugCompileMExpr = false,
   outputPath = "",
-  file = ""
+  file = "",
+  particles = 1000
 }
 
 let optionsConfig = [
@@ -28,13 +30,14 @@ let optionsConfig = [
   , lam p. {p.options with debugCompileMExpr = true} ),
   ( [("--out-path", " ", "<path>")]
   , "Sets the output path at which the compilation results are to be placed"
-  , lam p. {p.options with outputPath = argToString p} )
+  , lam p. {p.options with outputPath = argToString p} ),
+  ( [("--particles", " ", "<n>")]
+  , "Sets the number of particles to use for infers"
+  , lam p. {p.options with particles = argToInt p} )
 ]
 
 let parseOptions : () -> RtpplOptions = lam.
-  let result =
-    argParse optionsDefault optionsConfig
-  in
+  let result = argParse rtpplDefaultOptions optionsConfig in
   match result with ParseOK r then
     match r.strings with [filepath] ++ _ then
       {r.options with file = filepath}
