@@ -467,7 +467,10 @@ lang RtpplDPPLCompile =
     let neginf = TmApp {
       lhs = TmApp {
         lhs = TmConst {val = CDivf (), ty = _tyuk info, info = info},
-        rhs = TmConst {val = CFloat {val = 1.0}, ty = _tyuk info, info = info},
+        rhs = TmApp {
+          lhs = TmConst {val = CNegf (), ty = _tyuk info, info = info},
+          rhs = TmConst {val = CFloat {val = 1.0}, ty = _tyuk info, info = info},
+          ty = _tyuk info, info = info},
         ty = _tyuk info, info = info},
       rhs = TmConst {val = CFloat {val = 0.0}, ty = _tyuk info, info = info},
       ty = _tyuk info, info = info} in

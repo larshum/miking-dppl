@@ -101,7 +101,7 @@ value to_timespec_value(int64_t ts) {
   int64_t nsec = ts % (int64_t)1e9;
   value timespec = caml_alloc(2, 0);
   Store_field(timespec, 0, Val_long(sec));
-  Store_field(timespec, 0, Val_long(nsec));
+  Store_field(timespec, 1, Val_long(nsec));
   return timespec;
 }
 

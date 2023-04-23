@@ -44,8 +44,7 @@ let diffTimespec : Timespec -> Timespec -> Timespec =
   match (lhs, rhs) with ((ls, lns), (rs, rns)) in
   let s = subi ls rs in
   let ns = subi lns rns in
-  if or (lti s 0) (and (leqi s 0) (lti ns 0)) then (0, 0)
-  else if lti ns 0 then (subi s 1, addi ns nanosPerSec)
+  if lti ns 0 then (subi s 1, addi ns nanosPerSec)
   else (s, ns)
 
 let cmpTimespec : Timespec -> Timespec -> Int =
@@ -64,7 +63,7 @@ let logicalTime : Ref Timespec = ref (clockGetTime ())
 -- is an integer denoting the number of milliseconds of overrun.
 let delayBy : Ref Timespec -> Int -> Int = lam logicalTime. lam delay.
   let oldPriority = setMaxPriority () in
-  let intervalTime = millisToTimespec delay in
+  let intervalTime = nanosToTimespec delay in
   let endTime = clockGetTime () in
   let elapsedTime = diffTimespec endTime (deref logicalTime) in
   let waitTime = addTimespec (deref logicalTime) intervalTime in
@@ -208,11 +207,11 @@ let c = millisToTimespec 2022 in
 utest addTimespec a a with b using eqTimespec in
 utest addTimespec b c with millisToTimespec 2042 using eqTimespec in
 utest addTimespec b c with addTimespec c b using eqTimespec in
-utest diffTimespec a b with zero using eqTimespec in
+utest diffTimespec a b with (negi 1, 990000000) using eqTimespec in
 utest diffTimespec b a with a using eqTimespec in
 utest diffTimespec (diffTimespec b a) a with zero using eqTimespec in
 utest diffTimespec c a with millisToTimespec 2012 using eqTimespec in
-utest diffTimespec b c with zero using eqTimespec in
+utest diffTimespec b c with (negi 3, 998000000) using eqTimespec in
 
 utest cmpTimespec a a with 0 using eqi in
 utest cmpTimespec a b with negi 1 using eqi in
