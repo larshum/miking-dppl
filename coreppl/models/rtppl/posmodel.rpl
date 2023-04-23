@@ -1,0 +1,420 @@
+type DistanceObs = {
+  frontLeft : TSV(Float),
+  frontRight : TSV(Float),
+  rearLeft : TSV(Float),
+  rearRight : TSV(Float),
+  sideLeft : TSV(Float),
+  sideRight : TSV(Float)
+}
+
+def distanceObsDefault() : DistanceObs {
+  var t : TSV(Float) = tsv(0, 0.0)
+  return {
+    frontLeft = t, frontRight = t, rearLeft = t,
+    rearRight = t, sideLeft = t, sideRight = t
+  }
+}
+
+type WheelObs = {
+  speedLeft : [TSV(Float)],
+  speedRight : [TSV(Float)],
+  steeringAngle : [TSV(Float)]
+}
+
+def wheelObsDefault() : WheelObs {
+  return {speedLeft = [], speedRight = [], steeringAngle = []}
+}
+
+type State = {
+  x : Float,
+  y : Float,
+  speed : Float,
+  direction : Float,
+  steeringAngle : Float
+}
+
+type Event = {
+  id : Int,
+  value : Float
+}
+
+type RoomMap = {
+  data : [[Bool]],
+  rows : Int,
+  cols : Int
+}
+
+type Coordinate = {
+  row : Int,
+  col : Int
+}
+
+type SensorData = {
+  expectedDistance : State -> Float,
+  obs : TSV(Float),
+  maxRange : Float,
+  stddev : Float
+}
+
+// Encodes the offset of a sensor. The angle and distance determines the
+// position of the sensor relative to the center of the car. The direction
+// determines the direction the sensor is facing, relative to the front of the
+// car.
+type Offset = {
+  angle : Float,
+  dist : Float,
+  direction : Float
+}
+
+const roomBlockWidth : Float = 0.1
+const wheelCircumference : Float = 0.35
+const maxLongRangeSensorDist : Float = 4.0
+const longRangeSensorStddev : Float = 0.1
+const maxShortRangeSensorDist : Float = 2.0
+const shortRangeSensorStddev : Float = 0.05
+
+const frontLeftOffset : Offset = {
+  angle = 0.209639845874, dist = 0.240260275535, direction = 0.0
+}
+const frontRightOffset : Offset = {
+  angle = 0.0-0.209639845874, dist = 0.240260275535, direction = 0.0
+}
+const rearLeftOffset : Offset = {
+  angle = 2.76725903758, dist = 0.30083217913, direction = pi
+}
+const rearRightOffset : Offset = {
+  angle = 0.0-2.76725903758, dist = 0.30083217913, direction = pi
+}
+const sideLeftOffset : Offset = {
+  angle = 0.0-2.15879893034, dist = 0.126194294641, direction = (3.0 * pi) / 2.0
+}
+const sideRightOffset : Offset = {
+  angle = 2.15879893034, dist = 0.126194294641, direction = pi / 2.0
+}
+
+def tan(x : Float) : Float {
+  return sin(x) / cos(x)
+}
+
+def degToRad(degAngle : Float) : Float {
+  return degAngle * pi / 180.0
+}
+
+def readRoomMap() : RoomMap {
+  // TODO(larshum, 2023-04-14): This is handled via a runtime helper function,
+  // but could (and probably should) be handled in a cleaner way.
+  var data : [[Bool]] = readRoomMapRuntimeHelper()
+  return {data = data, rows = |data|, cols = |data[0]|}
+}
+
+def stateToCoordinate(m : RoomMap, s : State) : Coordinate {
+  return {row = floorToInt(s.y / roomBlockWidth), col = floorToInt(s.x / roomBlockWidth)}
+}
+
+// Determine whether the coordinate of the map corresponding to the position
+// represented by a given state is within the bounds of the map.
+def withinRoomBounds(m : RoomMap, s : State) : Bool {
+  var c : Coordinate = stateToCoordinate(m, s)
+  var res : Bool = true
+  cond res if ltInt(c.row, 0) || geqInt(c.row, m.rows) || ltInt(c.col, 0) || geqInt(c.col, m.cols) {
+    res = false
+  } else {
+    res = not(m.data[c.row][c.col])
+  }
+  return res
+}
+
+def cmpTimestamp(l : Int, r : Int) : Int {
+  var res : Int = 0
+  cond res if gtInt(l, r) {
+    res = 1
+  } else {
+    cond res if ltInt(l, r) {
+      res = negInt(1)
+    } else {}
+  }
+  return res
+}
+
+def cmpTsvEventTimestamp(l : TSV(Event), r : TSV(Event)) : Int {
+  return cmpTimestamp(timestamp(l), timestamp(r))
+}
+
+def negativeTimestamp(a : TSV(Event)) : Bool {
+  var ts : Int = timestamp(a)
+  return ltInt(ts, 0)
+}
+
+def collectWheelObsEvents(wheelObs : WheelObs) : [TSV(Event)] {
+  var events : [TSV(Event)] = []
+  loop events for sl in wheelObs.speedLeft {
+    var ts : Int = timestamp(sl)
+    events = push(events, tsv(ts, {id = 0, value = value(sl)}))
+  }
+  loop events for sr in wheelObs.speedRight {
+    var ts : Int = timestamp(sr)
+    events = push(events, tsv(ts, {id = 1, value = value(sr)}))
+  }
+  loop events for sa in wheelObs.steeringAngle {
+    var ts : Int = timestamp(sa)
+    events = push(events, tsv(ts, {id = 2, value = value(sa)}))
+  }
+  events = sort(cmpTsvEventTimestamp, events)
+  events = filter(negativeTimestamp, events)
+  return events
+}
+
+def timeDeltaSec(t0 : Int, t1 : Int) : Float {
+  return intToFloat(subInt(t1, t0)) / 1000000000.0
+}
+
+// Models the transition from a state at a previous estimation to the state at
+// the current logical time, based on observations made from the wheels.
+def transitionModel(wheelObs : WheelObs, s0 : State, period : Int) : State {
+  var accState : TSV(State) = tsv(negInt(period), s0)
+  var events : [TSV(Event)] = collectWheelObsEvents(wheelObs)
+  events = push(events, tsv(0, {id = 3, value = 0.0}))
+  loop accState for event in events {
+    var s : State = value(accState)
+    var timeDelta : Float = timeDeltaSec(timestamp(accState), timestamp(event))
+    var dist : Float = s.speed * timeDelta
+    var directionDelta : Float = (dist * tan(s.steeringAngle)) / 0.45
+    s.direction = s.direction + directionDelta
+    s.x = s.x + dist * cos(s.direction)
+    s.y = s.y + dist * sin(s.direction)
+    // NOTE(larshum, 2023-04-13): We use a record with an ID to simulate ADTs.
+    var e : Event = value(event)
+    cond s if eqInt(e.id, 0) || eqInt(e.id, 1) {
+      var speedMs : Float = e.value * wheelCircumference / 60.0
+      assume x ~ Gaussian(speedMs, 0.01)
+      s.speed = x
+    } else {
+      cond s if eqInt(e.id, 2) {
+        var angle : Float = 0.0 - degToRad(e.value)
+        assume x ~ Gaussian(angle, 0.05)
+        s.steeringAngle = x
+      } else {}
+    }
+    accState = tsv(timestamp(event), s)
+  }
+  return value(accState)
+}
+
+def stateWithOffsets(s : State, offset : Offset) : State {
+  s.direction = s.direction + offset.direction
+  s.x = s.x + offset.dist * cos(s.direction)
+  s.y = s.y + offset.dist * sin(s.direction)
+  return s
+}
+
+// Estimates the distance that would be observed by the car if it was in the
+// provided state.
+def expectedObservedDistance(m : RoomMap, o : Offset, s : State) : Float {
+  var sprime : State = stateWithOffsets(s, o)
+  var eps : Float = 0.05
+  var acc : {d : Float, s : State} = { d = 0.0, s = sprime }
+  loop acc while withinRoomBounds(m, acc.s) {
+    var sprime : State = acc.s
+    sprime.x = sprime.x + eps * cos(sprime.direction)
+    sprime.y = sprime.y + eps * sin(sprime.direction)
+    acc.s = sprime
+    acc.d = acc.d + eps
+  }
+  return acc.d
+}
+
+def longRangeSensorData(expectedDistance : State -> Float, obs : TSV(Float)) : SensorData {
+  return {
+    expectedDistance = expectedDistance, obs = obs,
+    maxRange = maxLongRangeSensorDist, stddev = longRangeSensorStddev
+  }
+}
+
+def shortRangeSensorData(expectedDistance : State -> Float, obs : TSV(Float)) : SensorData {
+  return {
+    expectedDistance = expectedDistance, obs = obs,
+    maxRange = maxShortRangeSensorDist, stddev = shortRangeSensorStddev
+  }
+}
+
+// Assuming the car drove at constant speed between s0 and s1, we estimate the
+// state at which the car has driven 'rate' of the time needed to reach s1.
+def interpolateState(s0 : State, s1 : State, rate : Float) : State {
+  var xdelta : Float = s1.x - s0.x
+  var ydelta : Float = s1.y - s0.y
+  s1.x = s0.x + xdelta * rate
+  s1.y = s0.y + ydelta * rate
+  return s1
+}
+
+def observeSensor(s : SensorData, s0 : State, s1 : State, period : Int) : Unit {
+	var timeOffset : Float = intToFloat(addInt(period, timestamp(s.obs))) / intToFloat(period)
+  var interpState : State = interpolateState(s0, s1, timeOffset)
+  var f : State -> Float = s.expectedDistance
+  var estimatedDistance : Float = f(interpState)
+  var obsDist : Float = value(s.obs)
+  cond if obsDist < s.maxRange {
+    observe obsDist ~ Gaussian(estimatedDistance, s.stddev)
+  } else {}
+}
+
+def observationModel(m : RoomMap, distObs : DistanceObs,
+                     prevState : State, currState : State,
+                     period : Int) : Unit {
+  var sensors : [SensorData] = [
+    longRangeSensorData(expectedObservedDistance(m, frontLeftOffset), distObs.frontLeft),
+    longRangeSensorData(expectedObservedDistance(m, frontRightOffset), distObs.frontRight),
+    longRangeSensorData(expectedObservedDistance(m, rearLeftOffset), distObs.rearLeft),
+    longRangeSensorData(expectedObservedDistance(m, rearRightOffset), distObs.rearRight),
+    shortRangeSensorData(expectedObservedDistance(m, sideLeftOffset), distObs.sideLeft),
+    shortRangeSensorData(expectedObservedDistance(m, sideRightOffset), distObs.sideRight)
+  ]
+  loop for s in sensors {
+    observeSensor(s, prevState, currState, period)
+  }
+}
+
+def initialPositionModel(blocks : [Coordinate]) : State {
+  // NOTE: The commented-out parts assume we have no knowledge of the initial
+  // position of the car. As this does not seem to perform very well, we use a
+  // more significantly more specific initial position.
+  // var c : Coordinate = randElemExn(blocks)
+  // var x : Float = intToFloat(c.col) * roomBlockWidth
+  // var y : Float = intToFloat(c.row) * roomBlockWidth
+  // assume xOffset ~ Uniform(0.0, roomBlockWidth)
+  // assume yOffset ~ Uniform(0.0, roomBlockWidth)
+  // assume direction ~ Uniform(0.0, 2.0 * pi)
+  // return {
+  //   x = x + xOffset, y = y + yOffset, direction = direction,
+  //   speed = 0.0, steeringAngle = 0.0
+  // }
+  var direction : Float = pi
+  assume x ~ Gaussian(10.0, 0.5)
+  assume y ~ Gaussian(2.0, 0.5)
+  return {x = x, y = y, direction = pi, speed = 0.0, steeringAngle = 0.0}
+}
+
+def initialPosition(m : RoomMap) : Dist(State) {
+  // NOTE(larshum, 2023-04-14): Find the coordinates of the map that are not
+  // obstructed.
+  var blocks : [Coordinate] = []
+  loop blocks for row in range(0, m.rows) {
+    loop blocks for col in range(0, m.cols) {
+      cond blocks if not(m.data[row][col]) {
+        blocks = push(blocks, {row = row, col = col})
+      } else {}
+    }
+  }
+  infer d <- initialPositionModel(blocks)
+  return d
+}
+
+// Assume we want to estimate the state at t = 0, i.e. at the current logical
+// time. Then the distribution of 'd' encodes our belief during the previous
+// estimation.
+def positionModel(m : RoomMap, d : Dist(State), distObs : DistanceObs,
+                  wheelObs : WheelObs, period : Int) : State {
+  assume state ~ d
+  var nextState : State = transitionModel(wheelObs, state, period)
+  cond if withinRoomBounds(m, nextState) {
+    observationModel(m, distObs, state, nextState, period)
+  } else {
+    degenerate
+  }
+  resample
+  return nextState
+}
+
+def cmpFloatTsvTimestamp(l : TSV(Float), r : TSV(Float)) : Int {
+  return cmpTimestamp(timestamp(l), timestamp(r))
+}
+
+def medianTsv(tsvs : [TSV(Float)]) : TSV(Float) {
+  var sorted : [TSV(Float)] = sort(cmpFloatTsvTimestamp, tsvs)
+  var res : TSV(Float) = tsv(0, inf)
+  // NOTE(larshum, 2023-04-20): For an even number of inputs, this is
+  // technically not producing the median.
+  cond res if gtInt(|sorted|, 0) {
+    res = sorted[divInt(|sorted|, 2)]
+  } else {}
+  return res
+}
+
+def positioning(period : Int) : Unit {
+  input frontLeft : Float
+  input frontRight : Float
+  input rearLeft : Float
+  input rearRight : Float
+  input sideLeft : Float
+  input sideRight : Float
+  input speedLeft : Float
+  input speedRight : Float
+  input steeringAngle : Float
+  actuator output posDist : Dist(State)
+
+  // TODO(larshum, 2023-04-14): For now, this is implemented through a runtime
+  // function. How should it work in the end?
+  var m : RoomMap = readRoomMap()
+  var d : Dist(State) = initialPosition(m)
+  write d to posDist
+  loop d {
+    sdelay period
+
+    var distObs : DistanceObs = distanceObsDefault()
+    read frontLeft to tmp
+    distObs.frontLeft = medianTsv(tmp)
+    read frontRight to tmp
+    distObs.frontRight = medianTsv(tmp)
+    read rearLeft to tmp
+    distObs.rearLeft = medianTsv(tmp)
+    read rearRight to tmp
+    distObs.rearRight = medianTsv(tmp)
+    read sideLeft to tmp
+    distObs.sideLeft = medianTsv(tmp)
+    read sideRight to tmp
+    distObs.sideRight = medianTsv(tmp)
+
+    var wheelObs : WheelObs = wheelObsDefault()
+    read speedLeft to tmp
+    wheelObs.speedLeft = tmp
+    read speedRight to tmp
+    wheelObs.speedRight = tmp
+    read steeringAngle to tmp
+    wheelObs.steeringAngle = tmp
+
+    infer d <- positionModel(m, d, distObs, wheelObs, period)
+    write d to posDist
+  }
+}
+
+main() {
+  // Distance sensors
+  sensor frontLeft : Float
+  sensor frontRight : Float
+  sensor rearLeft : Float
+  sensor rearRight : Float
+  sensor sideLeft : Float
+  sensor sideRight : Float
+
+  // Wheel sensors
+  sensor speedLeft : Float
+  sensor speedRight : Float
+  sensor steeringAngle : Float
+
+  // Distribution over positions
+  actuator posDist : Dist(State)
+
+  // Period = 1s
+  task pos = positioning(1000000000)
+
+  frontLeft -> pos.frontLeft
+  frontRight -> pos.frontRight
+  rearLeft -> pos.rearLeft
+  rearRight -> pos.rearRight
+  sideLeft -> pos.sideLeft
+  sideRight -> pos.sideRight
+  speedLeft -> pos.speedLeft
+  speedRight -> pos.speedRight
+  steeringAngle -> pos.steeringAngle
+  pos.posDist -> posDist
+}
