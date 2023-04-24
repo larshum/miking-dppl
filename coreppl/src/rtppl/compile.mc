@@ -485,14 +485,22 @@ lang RtpplDPPLCompile =
       inexpr = uunit_, ty = _tyuk info, info = info }
   -- NOTE(larshum, 2023-04-17): We introduce an intermediate Expr node for
   -- reading and writing. These are eliminated when specializing to a task.
-  | ReadRtpplStmt {port = {v = portStr}, dst = {v = dst}, info = info} ->
+  | ReadRtpplStmt {port = {v = portStr}, dst = {v = dst}, proj = proj, info = info} ->
     let portId = _getPortIdentifier env.topId portStr in
     match mapLookup portId env.portTypes with Some ty then
+      let readExpr = TmRead {
+        portId = portStr, tyData = compileRtpplType ty,
+        ty = _tyuk info, info = info } in
+      let body =
+        match proj with Some {v = label} then
+          TmRecordUpdate {
+            rec = _var info dst, key = stringToSid label, value = readExpr,
+            ty = _tyuk info, info = info }
+        else readExpr
+      in
       TmLet {
         ident = dst, tyAnnot = _tyuk info, tyBody = _tyuk info,
-        body = TmRead {portId = portStr, tyData = compileRtpplType ty,
-                       ty = _tyuk info, info = info},
-        inexpr = uunit_, ty = _tyuk info, info = info }
+        body = body, inexpr = uunit_, ty = _tyuk info, info = info }
     else
       errorSingle [info] "Reference to undefined port"
   | WriteRtpplStmt {src = src, port = {v = portStr}, delay = delay, info = info} ->

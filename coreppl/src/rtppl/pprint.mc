@@ -107,8 +107,12 @@ lang RtpplPrettyPrint = RtpplAst
     join [pprintIndent indent, "degenerate"]
   | ResampleRtpplStmt _ ->
     join [pprintIndent indent, "resample"]
-  | ReadRtpplStmt {port = {v = portId}, dst = {v = dst}} ->
-    join [pprintIndent indent, "read ", portId, " to ", nameGetStr dst]
+  | ReadRtpplStmt {port = {v = portId}, dst = {v = dst}, proj = proj} ->
+    let projStr =
+      match proj with Some {v = projId} then concat "." projId
+      else ""
+    in
+    join [pprintIndent indent, "read ", portId, " to ", nameGetStr dst, projStr]
   | WriteRtpplStmt {src = src, port = {v = portId}, delay = delay} ->
     let delayStr =
       match delay with Some d then concat "delay " (pprintRtpplExpr indent d)

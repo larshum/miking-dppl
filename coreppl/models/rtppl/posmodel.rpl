@@ -375,12 +375,9 @@ def positioning(period : Int) : Unit {
     distObs.sideRight = medianTsv(tmp)
 
     var wheelObs : WheelObs = wheelObsDefault()
-    read speedLeft to tmp
-    wheelObs.speedLeft = tmp
-    read speedRight to tmp
-    wheelObs.speedRight = tmp
-    read steeringAngle to tmp
-    wheelObs.steeringAngle = tmp
+    read speedLeft to wheelObs.speedLeft
+    read speedRight to wheelObs.speedRight
+    read steeringAngle to wheelObs.steeringAngle
 
     infer d <- positionModel(m, d, distObs, wheelObs, period)
     write d to posDist
