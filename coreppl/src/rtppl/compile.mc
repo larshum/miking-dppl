@@ -254,6 +254,24 @@ lang RtpplCompileExprExtension =
     unify [t.info] tyint_ (tyTm e);
     unify [t.info] tyunit_ tyRes;
     TmSdelay {t with e = e, ty = tyRes}
+
+  sem isAtomic =
+  | TmRead _ -> true
+  | TmWrite _ -> true
+  | TmSdelay _ -> true
+
+  sem pprintCode indent env =
+  | TmRead t ->
+    match getTypeStringCode indent env t.tyData with (env, tyData) in
+    (env, join ["read ", t.portId, " : ", tyData])
+  | TmWrite t ->
+    match pprintCode indent env t.src with (env, src) in
+    match pprintCode indent env t.delay with (env, delay) in
+    match getTypeStringCode indent env t.tyData with (env, tyData) in
+    (env, join ["write ", src, " -> ", t.portId, " (", delay, ") : ", tyData])
+  | TmSdelay t ->
+    match pprintCode indent env t.e with (env, e) in
+    (env, join ["sdelay ", e])
 end
 
 lang RtpplCompileType = RtpplCompileBase + DPPLParser
@@ -523,75 +541,68 @@ lang RtpplDPPLCompile =
       ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyuk info,
       body = TmSdelay { e = compileRtpplExpr e, ty = _tyuk info, info = info },
       inexpr = uunit_, ty = _tyuk info, info = info }
-  | LoopPlusStmtRtpplStmt {id = loopVar, loop = loopStmt, info = info} ->
-    let _var = _var info in
-    let loopId = nameSym "loopFn" in
-    let loopVarId =
-      match loopVar with Some {v = loopVarId} then loopVarId
-      else nameNoSym ""
-    in
-    let tailExpr =
-      match loopVar with Some {v = loopVarId} then _var loopVarId
-      else uunit_ in
+  | LoopPlusStmtRtpplStmt {
+      id = loopVar, info = info,
+      loop = ForInRtpplLoopStmt {id = {v = id}, e = e, body = body}
+    } ->
     match
-      switch loopStmt
-      case ForInRtpplLoopStmt {id = {v = id}, e = e, body = body} then
-        let tailId = nameSym "t" in
-        let headTailPat = PatSeqEdge {
-          prefix = [PatNamed {ident = PName id, ty = _tyuk info, info = info}],
-          middle = PName tailId, postfix = [],
-          ty = _tyuk info, info = info } in
-        let recCall = TmApp {
+      match loopVar with Some {v = lvid} then
+        (lvid, _var info lvid)
+      else
+        (nameNoSym "", uunit_)
+    with (loopVarId, tailExpr) in
+    let bodyExpr = compileRtpplStmts env tailExpr body in
+    let funExpr = TmLam {
+      ident = loopVarId, tyAnnot = _tyuk info, tyIdent = _tyuk info,
+      body = TmLam {
+        ident = id, tyAnnot = _tyuk info, tyIdent = _tyuk info,
+        body = bodyExpr, ty = _tyuk info, info = info },
+      ty = _tyuk info, info = info
+    } in
+    TmLet {
+      ident = loopVarId, tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmApp {
+        lhs = TmApp {
           lhs = TmApp {
-            lhs = _var loopId, rhs = tailExpr, ty = _tyuk info, info = info },
-          rhs = _var tailId, ty = _tyuk info, info = info } in
-        let thn = compileRtpplStmts env recCall body in
-        let seqId = nameSym "s" in
-        let body = TmLam {
-          ident = seqId, tyAnnot = _tyuk info, tyIdent = _tyuk info,
-          body = TmMatch {
-            target = _var seqId, pat = headTailPat,
-            thn = thn, els = tailExpr, ty = _tyuk info, info = info },
-          ty = _tyuk info, info = info } in
-        (body, Some e)
-      case InfLoopRtpplLoopStmt {body = body} then
-        let recCall = TmApp {
-          lhs = _var loopId, rhs = tailExpr, ty = _tyuk info,
-          info = info } in
-        (compileRtpplStmts env recCall body, None ())
-      case WhileCondRtpplLoopStmt {cond = cond, body = body} then
-        let recCall = TmApp {
-          lhs = _var loopId, rhs = tailExpr, ty = _tyuk info, info = info
-        } in
-        let body = TmMatch {
-          target = compileRtpplExpr cond,
-          pat = PatBool {val = true, ty = _tyuk info, info = info},
-          thn = compileRtpplStmts env recCall body,
-          els = tailExpr, ty = _tyuk info, info = info
-        } in
-        (body, None ())
-      case _ then
-        errorSingle [info] "Compilation not supported for this loop"
-      end
-    with (loopBody, loopCallArg) in
+            lhs = TmConst {val = CFoldl (), ty = _tyuk info, info = info},
+            rhs = funExpr, ty = _tyuk info, info = info },
+          rhs = tailExpr, ty = _tyuk info, info = info },
+        rhs = compileRtpplExpr e, ty = _tyuk info, info = info },
+      inexpr = uunit_, ty = _tyuk info, info = info }
+  | LoopPlusStmtRtpplStmt {id = loopVar, loop = loopStmt, info = info} ->
+    let loopId = nameSym "loopFn" in
+    match
+      match loopVar with Some {v = loopVarId} then
+        (loopVarId, _var info loopVarId)
+      else
+        (nameNoSym "", uunit_)
+    with (loopVarId, tailExpr) in
+    let recCall = TmApp {
+      lhs = _var info loopId, rhs = tailExpr, ty = _tyuk info, info = info
+    } in
+    let loopBody =
+      match
+        switch loopStmt
+        case InfLoopRtpplLoopStmt {body = body} then
+          (TmConst {val = CBool {val = true}, ty = _tyuk info, info = info}, body)
+        case WhileCondRtpplLoopStmt {cond = cond, body = body} then
+          (compileRtpplExpr cond, body)
+        case _ then
+          errorSingle [info] "Compilation not supported for this loop construct"
+        end
+      with (condExpr, body) in
+      TmMatch {
+        target = condExpr,
+        pat = PatBool {val = true, ty = _tyuk info, info = info},
+        thn = compileRtpplStmts env recCall body,
+        els = tailExpr, ty = _tyuk info, info = info }
+    in
     let recBind = {
       ident = loopId, tyAnnot = _tyuk info, tyBody = _tyuk info,
       body = TmLam {
         ident = loopVarId, tyAnnot = _tyuk info, tyIdent = _tyuk info,
         body = loopBody, ty = _tyuk info, info = info },
       info = info } in
-    let recCall =
-      match loopCallArg with Some arg then
-        TmApp {
-          lhs = TmApp {
-            lhs = _var loopId, rhs = tailExpr, ty = _tyuk info,
-            info = info },
-          rhs = compileRtpplExpr arg, ty = _tyuk info, info = info }
-      else
-        TmApp {
-          lhs = _var loopId, rhs = tailExpr, ty = _tyuk info,
-          info = info }
-    in
     let resultBind = TmLet {
       ident = loopVarId, tyAnnot = _tyuk info, tyBody = _tyuk info,
       body = recCall, inexpr = uunit_, ty = _tyuk info, info = info } in
