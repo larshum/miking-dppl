@@ -14,6 +14,7 @@ type RtpplExprNoIdent
 type RtpplType {grouping = "(" ")", }
 type RtpplTypeNoIdent
 type RtpplConst
+type RtpplTimeSuffix
 
 type RtpplPort
 
@@ -167,7 +168,12 @@ prod Alias : RtpplType = id:UName next:RtpplTypeNoIdent
 prod Direct : RtpplTypeNoIdent = empty
 prod Application : RtpplTypeNoIdent = "(" args:RtpplType ("," args:RtpplType)* ")"
 
-prod LitInt : RtpplConst = value:Integer
+prod LitInt : RtpplConst = value:Integer suffix:RtpplTimeSuffix?
 prod LitFloat : RtpplConst = value:Float
 prod LitBool : RtpplConst = value:Boolean
 prod LitString : RtpplConst = value:StringLit
+
+prod Sec : RtpplTimeSuffix = "s"
+prod Millis : RtpplTimeSuffix = "ms"
+prod Micros : RtpplTimeSuffix = "us"
+prod Nanos : RtpplTimeSuffix = "ns"

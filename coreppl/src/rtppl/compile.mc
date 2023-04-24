@@ -740,7 +740,8 @@ lang RtpplDPPLCompile =
 
   sem compileRtpplConst : RtpplConst -> Expr
   sem compileRtpplConst =
-  | LitIntRtpplConst {value = {v = i}, info = info} ->
+  | LitIntRtpplConst {value = {v = i}, suffix = suffix, info = info} ->
+    let i = resolveRtpplTimeSuffix i suffix in
     TmConst {val = CInt {val = i}, ty = TyInt {info = info}, info = info}
   | LitFloatRtpplConst {value = {v = f}, info = info} ->
     TmConst {val = CFloat {val = f}, ty = TyFloat {info = info}, info = info}
@@ -752,6 +753,14 @@ lang RtpplDPPLCompile =
     in
     let strTy = TySeq {ty = TyChar {info = info}, info = info} in
     TmSeq {tms = map toCharConst s, ty = strTy, info = info}
+
+  sem resolveRtpplTimeSuffix : Int -> Option RtpplTimeSuffix -> Int
+  sem resolveRtpplTimeSuffix i =
+  | None _
+  | Some (NanosRtpplTimeSuffix _) -> i
+  | Some (SecRtpplTimeSuffix _) -> muli i (floorfi 1e9)
+  | Some (MillisRtpplTimeSuffix _) -> muli i (floorfi 1e6)
+  | Some (MicrosRtpplTimeSuffix _) -> muli i (floorfi 1e3)
 end
 
 lang RtpplCompileGenerated = RtpplCompileType

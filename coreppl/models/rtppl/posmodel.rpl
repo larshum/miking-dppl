@@ -165,7 +165,7 @@ def collectWheelObsEvents(wheelObs : WheelObs) : [TSV(Event)] {
 }
 
 def timeDeltaSec(t0 : Int, t1 : Int) : Float {
-  return intToFloat(subInt(t1, t0)) / 1000000000.0
+  return intToFloat(subInt(t1, t0)) / int2float(1s)
 }
 
 // Models the transition from a state at a previous estimation to the state at
@@ -404,8 +404,7 @@ main() {
   // Distribution over positions
   actuator posDist : Dist(State)
 
-  // Period = 1s
-  task pos = positioning(1000000000)
+  task pos = positioning(1s)
 
   frontLeft -> pos.frontLeft
   frontRight -> pos.frontRight
