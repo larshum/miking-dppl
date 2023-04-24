@@ -226,7 +226,6 @@ lang RtpplPrettyPrint = RtpplAst
   sem pprintRtpplTimeSuffix : Option RtpplTimeSuffix -> String
   sem pprintRtpplTimeSuffix =
   | None _ -> ""
-  | Some (SecRtpplTimeSuffix _) -> "s"
   | Some (MillisRtpplTimeSuffix _) -> "ms"
   | Some (MicrosRtpplTimeSuffix _) -> "us"
   | Some (NanosRtpplTimeSuffix _) -> "ns"

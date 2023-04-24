@@ -758,7 +758,6 @@ lang RtpplDPPLCompile =
   sem resolveRtpplTimeSuffix i =
   | None _
   | Some (NanosRtpplTimeSuffix _) -> i
-  | Some (SecRtpplTimeSuffix _) -> muli i (floorfi 1e9)
   | Some (MillisRtpplTimeSuffix _) -> muli i (floorfi 1e6)
   | Some (MicrosRtpplTimeSuffix _) -> muli i (floorfi 1e3)
 end

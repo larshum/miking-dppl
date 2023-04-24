@@ -173,7 +173,6 @@ prod LitFloat : RtpplConst = value:Float
 prod LitBool : RtpplConst = value:Boolean
 prod LitString : RtpplConst = value:StringLit
 
-prod Sec : RtpplTimeSuffix = "s"
 prod Millis : RtpplTimeSuffix = "ms"
 prod Micros : RtpplTimeSuffix = "us"
 prod Nanos : RtpplTimeSuffix = "ns"
