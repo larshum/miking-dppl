@@ -125,6 +125,7 @@ prod Length : RtpplExpr = "|" e:RtpplExpr "|"
 -- NOTE(larshum, 2023-04-05): Definition of elementary distributions
 prod GaussianDist : RtpplExpr = "Gaussian" "(" mu:RtpplExpr "," sigma:RtpplExpr ")"
 prod UniformDist : RtpplExpr = "Uniform" "(" lo:RtpplExpr "," hi:RtpplExpr ")"
+prod BernoulliDist : RtpplExpr = "Bernoulli" "(" p:RtpplExpr ")"
 
 infix left Add : RtpplExpr = "+"
 infix left Sub : RtpplExpr = "-"

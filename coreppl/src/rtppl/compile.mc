@@ -717,15 +717,12 @@ lang RtpplDPPLCompile =
     TmApp {
       lhs = TmApp {
         lhs = TmConst {val = CGet (), ty = _tyuk info, info = info},
-        rhs = compileRtpplExpr e,
-        ty = _tyuk info, info = info },
-      rhs = compileRtpplExpr idx,
-      ty = _tyuk info, info = info }
+        rhs = compileRtpplExpr e, ty = _tyuk info, info = info },
+      rhs = compileRtpplExpr idx, ty = _tyuk info, info = info }
   | LengthRtpplExpr {e = e, info = info} ->
     TmApp {
       lhs = TmConst {val = CLength (), ty = _tyuk info, info = info},
-      rhs = compileRtpplExpr e,
-      ty = _tyuk info, info = info }
+      rhs = compileRtpplExpr e, ty = _tyuk info, info = info }
   | GaussianDistRtpplExpr {mu = mu, sigma = sigma, info = info} ->
     TmDist {
       dist = DGaussian {mu = compileRtpplExpr mu, sigma = compileRtpplExpr sigma},
@@ -733,6 +730,10 @@ lang RtpplDPPLCompile =
   | UniformDistRtpplExpr {lo = lo, hi = hi, info = info} ->
     TmDist {
       dist = DUniform {a = compileRtpplExpr lo, b = compileRtpplExpr hi},
+      ty = _tyuk info, info = info }
+  | BernoulliDistRtpplExpr {p = p, info = info} ->
+    TmDist {
+      dist = DBernoulli {p = compileRtpplExpr p},
       ty = _tyuk info, info = info }
 
   sem _constructApp : Info -> Const -> RtpplExpr -> RtpplExpr -> Expr
