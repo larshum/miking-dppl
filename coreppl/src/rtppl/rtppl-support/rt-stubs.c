@@ -11,11 +11,11 @@
 #include <mach/clock.h>
 #endif
 
-int clock_get_timespec(struct timespec *ts) {
+int clock_get_monotonic_timespec(struct timespec *ts) {
 #ifdef __MACH__
   clock_serv_t cclock;
   mach_timespec_t mts;
-  host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
+  host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &cclock);
   clock_get_time(cclock, &mts);
   mach_port_deallocate(mach_task_self(), cclock);
   ts->tv_sec = mts.tv_sec;
@@ -26,13 +26,22 @@ int clock_get_timespec(struct timespec *ts) {
 #endif
 }
 
-value clock_get_time_stub() {
+value clock_monotonic_time_stub() {
   CAMLparam0();
   CAMLlocal1(out);
-
   struct timespec ts;
-  clock_get_timespec(&ts);
+  clock_get_monotonic_timespec(&ts);
+  out = caml_alloc(2, 0);
+  Store_field(out, 0, Val_int(ts.tv_sec));
+  Store_field(out, 1, Val_int(ts.tv_nsec));
+  CAMLreturn(out);
+}
 
+value clock_wall_time_stub() {
+  CAMLparam0();
+  CAMLlocal1(out);
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
   out = caml_alloc(2, 0);
   Store_field(out, 0, Val_int(ts.tv_sec));
   Store_field(out, 1, Val_int(ts.tv_nsec));
@@ -75,25 +84,20 @@ inline int clock_nanosleep_abstime(const struct timespec *req) {
 
 void clock_nanosleep_stub(value t) {
   CAMLparam1(t);
-
   struct timespec ts;
   ts.tv_sec = Long_val(Field(t, 0));
   ts.tv_nsec = Long_val(Field(t, 1));
   clock_nanosleep_abstime(&ts);
-
   CAMLreturn0;
 }
 
 value set_priority_stub(value priority) {
   CAMLparam1(priority);
-
   int policy;
   struct sched_param param;
   pthread_getschedparam(pthread_self(), &policy, &param);
   int old_priority = param.sched_priority;
-
   param.sched_priority = Int_val(priority);
   pthread_setschedparam(pthread_self(), policy, &param);
-
   CAMLreturn(Val_int(old_priority));
 }

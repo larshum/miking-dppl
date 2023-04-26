@@ -7,11 +7,11 @@ type timespec = int * int
 type 'a tsv = timespec * 'a
 type opaque
 
-external clock_get_time : unit -> timespec = "clock_get_time_stub"
+external get_monotonic_time : unit -> timespec = "clock_monotonic_time_stub"
+external get_wall_clock_time : unit -> timespec = "clock_wall_time_stub"
 external clock_nanosleep : timespec -> unit = "clock_nanosleep_stub"
 
 external set_priority : int -> int = "set_priority_stub"
-
 let set_max_priority (_ : unit) : int = set_priority 255
 
 external open_file_nonblocking : string -> int = "open_file_nonblocking_stub"

@@ -56,17 +56,21 @@ let cmpTimespec : Timespec -> Timespec -> Int =
   else if lti lns rns then negi 1
   else 0
 
-let logicalTime : Ref Timespec = ref (clockGetTime ())
+-- NOTE(larshum, 2023-04-26): We keep track of the monotonic logical time for
+-- precise delays, and the wallclock logical time for timestamping of messages.
+-- These are initialized at the end of the initialization function.
+let monoLogicalTime : Ref Timespec = ref (0,0)
+let wallLogicalTime : Ref Timespec = ref (0,0)
 
 -- Delays execution by a given amount of delay, in milliseconds, given a
 -- reference containing the start time of the current timing point. The result
 -- is an integer denoting the number of milliseconds of overrun.
-let delayBy : Ref Timespec -> Int -> Int = lam logicalTime. lam delay.
+let delayBy : Int -> Int = lam delay.
   let oldPriority = setMaxPriority () in
   let intervalTime = nanosToTimespec delay in
-  let endTime = clockGetTime () in
-  let elapsedTime = diffTimespec endTime (deref logicalTime) in
-  let waitTime = addTimespec (deref logicalTime) intervalTime in
+  let endTime = getMonotonicTime () in
+  let elapsedTime = diffTimespec endTime (deref monoLogicalTime) in
+  let waitTime = addTimespec (deref monoLogicalTime) intervalTime in
   let overrun =
     let c = cmpTimespec intervalTime elapsedTime in
     if gti c 0 then clockNanosleep waitTime; 0
@@ -75,18 +79,19 @@ let delayBy : Ref Timespec -> Int -> Int = lam logicalTime. lam delay.
       timespecToMillis elapsedTime
     else 0
   in
-  modref logicalTime waitTime;
+  modref monoLogicalTime waitTime;
+  modref wallLogicalTime (addTimespec (deref wallLogicalTime) intervalTime);
   setPriority oldPriority;
   overrun
 
 type TSV a = (Timespec, a)
 
 let timestamp : TSV Unknown -> Int = lam tsv.
-  let lt = deref logicalTime in
+  let lt = deref wallLogicalTime in
   timespecToNanos (diffTimespec tsv.0 lt)
 let value : TSV Unknown -> Unknown = lam tsv. tsv.1
 let tsv : Int -> Unknown -> TSV Unknown = lam offset. lam value.
-  let lt = deref logicalTime in
+  let lt = deref wallLogicalTime in
   (addTimespec lt (nanosToTimespec offset), value)
 
 -- NOTE(larshum, 2023-04-25): Before the delay, we flush the messages stored in
@@ -95,7 +100,7 @@ let tsv : Int -> Unknown -> TSV Unknown = lam offset. lam value.
 let sdelay : (() -> ()) -> (() -> ()) -> Int -> Int =
   lam flushOutputs. lam updateInputs. lam delay.
   flushOutputs ();
-  let overrun = delayBy logicalTime delay in
+  let overrun = delayBy delay in
   updateInputs ();
   overrun
 
@@ -125,15 +130,16 @@ let rtpplWriteDistFloatRecordPort =
 let rtpplRuntimeInit : (() -> ()) -> (() -> ()) -> (() -> Unknown) -> () =
   lam updateInputSequences. lam closeFileDescriptors. lam cont.
 
-  -- Initialize the logical time to the current time of the physical clock
-  modref logicalTime (clockGetTime ());
-
-  -- Updates the contents of the input sequences.
-  updateInputSequences ();
-
   -- Sets up a signal handler on SIGINT which calls code for closing all file
   -- descriptors before terminating.
   setSignalHandler 2 (lam. closeFileDescriptors (); exit 0);
+
+  -- Initialize the logical time to the current time of the physical clock
+  modref monoLogicalTime (getMonotonicTime ());
+  modref wallLogicalTime (getWallClockTime ());
+
+  -- Updates the contents of the input sequences.
+  updateInputSequences ();
 
   -- Hand over control to the task
   cont ();
