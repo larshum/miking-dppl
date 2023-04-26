@@ -253,19 +253,9 @@ def observeSensor(s : SensorData, s0 : State, s1 : State, period : Int) : Unit {
     var f : State -> Float = s.expectedDistance
     var estimatedDistance : Float = f(interpState)
     var obsDist : Float = value(obs)
-    cond if maxf(estimatedDistance, obsDist) < s.maxRange
-         && absf(estimatedDistance - obsDist) > 1.0 {
-      // If the observation reported by the sensor was valid, then our belief
-      // of the current state of the car must be invalid.
-      assume validObs ~ Bernoulli(0.2)
-      cond if validObs {
-        degenerate
-      } else {}
-    } else {
-      cond if obsDist < s.maxRange {
-        observe obsDist ~ Gaussian(estimatedDistance, s.stddev)
-      } else {}
-    }
+    cond if obsDist < s.maxRange {
+      observe obsDist ~ Gaussian(estimatedDistance, s.stddev)
+    } else {}
   }
 }
 
