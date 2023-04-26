@@ -71,7 +71,7 @@ inline void timespec_monodiff_rml(struct timespec *ts_out, const struct timespec
 inline int clock_nanosleep_abstime(const struct timespec *req) {
 #ifdef __MACH__
   struct timespec ts_delta;
-  int retval = clock_get_timespec(&ts_delta);
+  int retval = clock_get_monotonic_timespec(&ts_delta);
   if (retval == 0) {
     timespec_monodiff_rml(&ts_delta, req);
     retval = nanosleep(&ts_delta, NULL);
