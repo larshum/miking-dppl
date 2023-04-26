@@ -14,11 +14,14 @@ external set_priority : int -> int = "set_priority_stub"
 
 let set_max_priority (_ : unit) : int = set_priority 255
 
-external read_float_named_pipe : string -> (float tsv) array = "read_float_named_pipe_stub"
-external write_float_named_pipe : string -> float -> timespec -> unit = "write_float_named_pipe_stub"
+external open_file_nonblocking : string -> int = "open_file_nonblocking_stub"
+external close_file_descriptor : int -> unit = "close_file_descriptor_stub"
+
+external read_float_named_pipe : int -> (float tsv) array = "read_float_named_pipe_stub"
+external write_float_named_pipe : int -> float tsv -> unit = "write_float_named_pipe_stub"
 external read_dist_float_record_named_pipe
-  : string -> int -> ((float * opaque) array tsv) array
+  : int -> int -> ((float * opaque) array tsv) array
   = "read_dist_float_record_named_pipe_stub"
 external write_dist_float_record_named_pipe
-  : string -> opaque array * float array -> timespec -> int -> unit
+  : int -> int -> (opaque array * float array) tsv -> unit
   = "write_dist_float_record_named_pipe_stub"

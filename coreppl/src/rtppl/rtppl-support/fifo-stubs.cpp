@@ -1,6 +1,7 @@
 #include <caml/alloc.h>
 #include <caml/memory.h>
 #include <caml/mlvalues.h>
+#include <caml/signals.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -25,7 +26,10 @@ int64_t read_message_size(int fd) {
   while (count < sizeof(int64_t)) {
     int bytes = read(fd, (void*)&buffer[count], sizeof(int64_t)-count);
     if (bytes < 0) {
-      if (count > 0 && errno == EAGAIN) continue;
+      if (count > 0 && errno == EAGAIN) {
+        caml_process_pending_actions();
+        continue;
+      }
       return -1;
     }
     count += bytes;
@@ -45,7 +49,10 @@ int64_t read_message(int fd, payload& p) {
   while (count < p.size) {
     int bytes_read = read(fd, (void*)&p.data[count], p.size - count);
     if (bytes_read <= 0) {
-      if (errno == EAGAIN) continue;
+      if (errno == EAGAIN) {
+        caml_process_pending_actions();
+        continue;
+      }
       fprintf(stderr, "Error reading message: %s\n", strerror(errno));
       exit(1);
     }
@@ -54,7 +61,8 @@ int64_t read_message(int fd, payload& p) {
   return true;
 }
 
-std::vector<payload> read_messages(int fd) {
+std::vector<payload> read_messages(value fd_val) {
+  int fd = Int_val(fd_val);
   std::vector<payload> input_seq;
   payload p;
   while (read_message(fd, p)) {
@@ -70,7 +78,10 @@ bool write_message_size(int fd, int64_t sz) {
   while (count < sizeof(int64_t)) {
     int bytes = write(fd, (void*)&buffer[count], sizeof(int64_t)-count);
     if (bytes < 0) {
-      if (errno == EAGAIN) continue;
+      if (errno == EAGAIN) {
+        caml_process_pending_actions();
+        continue;
+      }
       return false;
     }
     count += bytes;
@@ -78,7 +89,8 @@ bool write_message_size(int fd, int64_t sz) {
   return true;
 }
 
-void write_message(int fd, const payload& p) {
+void write_message(value fd_val, const payload& p) {
+  int fd = Int_val(fd_val);
   bool res = write_message_size(fd, p.size);
   if (!res) {
     fprintf(stderr, "Error writing message: %s\n", strerror(errno));
@@ -88,7 +100,10 @@ void write_message(int fd, const payload& p) {
   while (count < p.size) {
     int bytes_written = write(fd, (void*)&p.data[count], p.size - count);
     if (bytes_written <= 0) {
-      if (errno == EAGAIN) continue;
+      if (errno == EAGAIN) {
+        caml_process_pending_actions();
+        continue;
+      }
       fprintf(stderr, "Error writing message: %s\n", strerror(errno));
       exit(1);
     }
@@ -124,13 +139,15 @@ value read_float_payload(const payload& p) {
   return tsv;
 }
 
-payload write_float_payload(value msg, value ts) {
+payload write_float_payload(value tsv) {
   payload p;
   p.size = sizeof(int64_t) + sizeof(double);
   p.data = (char*)malloc(p.size);
+  value ts = Field(tsv, 0);
   int64_t timestamp = timespec_value_to_int64(ts);
   memcpy(p.data, (void*)&timestamp, sizeof(int64_t));
-  double data = Double_val(msg);
+  value v = Field(tsv, 1);
+  double data = Double_val(v);
   memcpy(p.data + sizeof(int64_t), (void*)&data, sizeof(double));
   return p;
 }
@@ -166,7 +183,9 @@ value read_dist_float_record_payload(const payload& p, int64_t nfields) {
   return tsv;
 }
 
-payload write_dist_float_record_payload(value d, value ts, value nfields_val) {
+payload write_dist_float_record_payload(value tsv, value nfields_val) {
+  value ts = Field(tsv, 0);
+  value d = Field(tsv, 1);
   value samples = Field(d, 0);
   value log_weights = Field(d, 1);
   int64_t nsamples = Wosize_val(samples);
@@ -197,7 +216,7 @@ int open_pipe(value pipe) {
   const char *pipe_id = String_val(pipe);
   int fd = open(pipe_id, O_RDWR | O_NONBLOCK);
   if (fd == -1) {
-    fprintf(stderr, "Error: could not open pipe %s\n", pipe_id);
+    fprintf(stderr, "Could not open pipe %s: %s\n", pipe_id, strerror(errno));
     exit(1);
   }
   return fd;
@@ -205,14 +224,22 @@ int open_pipe(value pipe) {
 
 extern "C" {
 
-  value read_float_named_pipe_stub(value pipe) {
+  value open_file_nonblocking_stub(value pipe) {
     CAMLparam1(pipe);
-    CAMLlocal1(out);
-
     int fd = open_pipe(pipe);
-    std::vector<payload> input_seq = read_messages(fd);
-    close(fd);
+    CAMLreturn(Val_int(fd));
+  }
 
+  void close_file_descriptor_stub(value fd) {
+    CAMLparam1(fd);
+    close(Int_val(fd));
+    CAMLreturn0;
+  }
+
+  value read_float_named_pipe_stub(value fd) {
+    CAMLparam1(fd);
+    CAMLlocal1(out);
+    std::vector<payload> input_seq = read_messages(fd);
     out = caml_alloc(input_seq.size(), 0);
     for (size_t i = 0; i < input_seq.size(); i++) {
       Store_field(out, i, read_float_payload(input_seq[i]));
@@ -220,26 +247,18 @@ extern "C" {
     CAMLreturn(out);
   }
 
-  void write_float_named_pipe_stub(value pipe, value msg, value ts) {
-    CAMLparam3(pipe, msg, ts);
-
-    int fd = open_pipe(pipe);
-    payload p = write_float_payload(msg, ts);
+  void write_float_named_pipe_stub(value fd, value tsv) {
+    CAMLparam2(fd, tsv);
+    payload p = write_float_payload(tsv);
     write_message(fd, p);
     free(p.data);
-    close(fd);
-
     CAMLreturn0;
   }
 
-  value read_dist_float_record_named_pipe_stub(value pipe, value nfields_val) {
-    CAMLparam2(pipe, nfields_val);
+  value read_dist_float_record_named_pipe_stub(value fd, value nfields_val) {
+    CAMLparam2(fd, nfields_val);
     CAMLlocal1(out);
-
-    int fd = open_pipe(pipe);
     std::vector<payload> input_seq = read_messages(fd);
-    close(fd);
-
     int64_t nfields = Long_val(nfields_val);
     out = caml_alloc(input_seq.size(), 0);
     for (size_t i = 0; i < input_seq.size(); i++) {
@@ -248,15 +267,11 @@ extern "C" {
     CAMLreturn(out);
   }
 
-  void write_dist_float_record_named_pipe_stub(value pipe, value msg, value ts, value nfields) {
-    CAMLparam3(pipe, msg, ts);
-
-    int fd = open_pipe(pipe);
-    payload p = write_dist_float_record_payload(msg, ts, nfields);
+  void write_dist_float_record_named_pipe_stub(value fd, value nfields, value tsv) {
+    CAMLparam3(fd, nfields, tsv);
+    payload p = write_dist_float_record_payload(tsv, nfields);
     write_message(fd, p);
     free(p.data);
-    close(fd);
-
     CAMLreturn0;
   }
 
