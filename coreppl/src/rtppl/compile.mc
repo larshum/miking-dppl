@@ -950,8 +950,12 @@ lang RtpplCompileGenerated = RtpplCompileType
     let flushPortData = lam port.
       let fdExpr = getPortFileDescriptor info port.id in
       let msgsExpr = getOutputBufferExpr info port.id in
+      -- NOTE(larshum, 2023-04-26): We need to give all bindings distinct
+      -- identifiers, or all but one is removed by the duplicate code
+      -- elimination used in the DPPL compiler.
+      let id = nameNoSym (concat "w_" port.id) in
       TmLet {
-        ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyuk info,
+        ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
         body = rtpplWriteExprType rtIds fdExpr msgsExpr port.ty,
         inexpr = uunit_, ty = _tyuk info, info = info }
     in
