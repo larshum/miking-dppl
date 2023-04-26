@@ -89,46 +89,51 @@ let tsv : Int -> Unknown -> TSV Unknown = lam offset. lam value.
   let lt = deref logicalTime in
   (addTimespec lt (nanosToTimespec offset), value)
 
-let sdelay : (() -> ()) -> Int -> Int = lam f. lam delay.
+-- NOTE(larshum, 2023-04-25): Before the delay, we flush the messages stored in
+-- the output buffers. After the delay, we update the contents of the input
+-- sequences by reading.
+let sdelay : (() -> ()) -> (() -> ()) -> Int -> Int =
+  lam flushOutputs. lam updateInputs. lam delay.
+  flushOutputs ();
   let overrun = delayBy logicalTime delay in
-  f ();
+  updateInputs ();
   overrun
 
-let rtpplReadFloatPipe = lam id.
-  externalReadFloatPipe id
+let openFileDescriptor : String -> Int = lam file.
+  externalOpenFileNonblocking file
 
-let rtpplReadDistFloatRecordPipe = lam id. lam nfields.
-  externalReadDistFloatRecordPipe id nfields
+let closeFileDescriptor : Int -> () = lam fd.
+  externalCloseFileDescriptor fd
 
-let writeActuationTimespec : Int -> Timespec = lam offset.
-  let intervalTime = nanosToTimespec offset in
-  addTimespec (deref logicalTime) intervalTime
+let rtpplReadFloatPort = lam fd.
+  externalReadFloatPipe fd
 
-let rtpplWriteFloatPort : String -> Float -> Int -> () =
-  lam id. lam msg. lam offset.
-  let t = writeActuationTimespec offset in
+let rtpplReadDistFloatRecordPort = lam fd. lam nfields.
+  externalReadDistFloatRecordPipe fd nfields
+
+let rtpplWriteFloatPort =
+  lam fd. lam msgs.
   -- TODO(larshum, 2023-04-11): This function will open and close a FIFO queue
   -- every time it is called, which may be very expensive. Therefore, we should
   -- open them at startup and then store them until shutdown.
-  externalWriteFloatPipe id msg t
+  iter (lam msg. externalWriteFloatPipe fd msg) msgs
 
 let rtpplWriteDistFloatRecordPort =
-  lam id. lam msg. lam nfields. lam offset.
-  let t = writeActuationTimespec offset in
-  externalWriteDistFloatRecordPipe id msg t nfields
+  lam fd. lam nfields. lam msgs.
+  iter (lam msg. externalWriteDistFloatRecordPipe fd nfields msg) msgs
 
-let rtpplRuntimeInit : (() -> ()) -> (() -> Unknown) -> () =
-  lam updateInputSequences. lam cont.
+let rtpplRuntimeInit : (() -> ()) -> (() -> ()) -> (() -> Unknown) -> () =
+  lam updateInputSequences. lam closeFileDescriptors. lam cont.
 
-  -- Initialize the logical time to the current time shown by the clock
-  -- TODO(larshum, 2023-04-17): This value should be decided by a synchronized
-  -- startup step.
+  -- Initialize the logical time to the current time of the physical clock
   modref logicalTime (clockGetTime ());
 
-  -- Updates the contents of all input sequences before handing over control to
-  -- the task. As this function is generated at compile-time, we invoke it via
-  -- a higher-order function argument.
+  -- Updates the contents of the input sequences.
   updateInputSequences ();
+
+  -- Sets up a signal handler on SIGINT which calls code for closing all file
+  -- descriptors before terminating.
+  setSignalHandler 2 (lam. closeFileDescriptors (); exit 0);
 
   -- Hand over control to the task
   cont ();

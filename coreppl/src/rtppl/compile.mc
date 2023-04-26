@@ -14,9 +14,12 @@ include "mexpr/lamlift.mc"
 include "mexpr/symbolize.mc"
 include "mexpr/utils.mc"
 
-let inputRecordId = nameSym "InputRecord"
+let fileDescriptorsId = nameSym "fileDescriptors"
+let closeFileDescriptorsId = nameSym "closeFileDescriptors"
 let inputSeqsId = nameSym "inputSeqs"
 let updateInputsId = nameSym "updateInputs"
+let outputSeqsId = nameSym "outputSeqs"
+let flushOutputsId = nameSym "flushOutputs"
 
 let runtimeRef = ref (None ())
 let rtIdRef = ref (None ())
@@ -26,6 +29,8 @@ lang RtpplCompileBase =
 
   type RuntimeIds = {
     sdelay : Name,
+    openFile : Name,
+    closeFile : Name,
     readFloat : Name,
     readDistFloatRecord : Name,
     writeFloat : Name,
@@ -75,18 +80,19 @@ lang RtpplCompileBase =
     match deref rtIdRef with Some ids then ids
     else
       let strs = [
-        "sdelay", "rtpplReadFloatPipe", "rtpplReadDistFloatRecordPipe",
-        "rtpplWriteFloatPort", "rtpplWriteDistFloatRecordPort", "TSV",
+        "sdelay", "openFileDescriptor", "closeFileDescriptor",
+        "rtpplReadFloatPort", "rtpplReadDistFloatRecordPort",
+        "rtpplWriteFloatPort", "rtpplWriteDistFloatRecordPort", "tsv",
         "rtpplRuntimeInit"
       ] in
       let rt = readRuntime () in
       match optionMapM identity (findNamesOfStrings strs rt)
       with Some ids then
         let result =
-          { sdelay = get ids 0, readFloat = get ids 1
-          , readDistFloatRecord = get ids 2, writeFloat = get ids 3
-          , writeDistFloatRecord = get ids 4, tsv = get ids 5
-          , init = get ids 6 }
+          { sdelay = get ids 0, openFile = get ids 1, closeFile = get ids 2
+          , readFloat = get ids 3, readDistFloatRecord = get ids 4
+          , writeFloat = get ids 5, writeDistFloatRecord = get ids 6
+          , tsv = get ids 7, init = get ids 8 }
         in
         modref rtIdRef (Some result);
         result
@@ -133,6 +139,19 @@ lang RtpplCompileBase =
   sem _pvar : Info -> Name -> Pat
   sem _pvar info =
   | id -> PatNamed {ident = PName id, ty = _tyuk info, info = info}
+
+  sem _proj : Info -> Expr -> String -> Expr
+  sem _proj info target =
+  | id ->
+    let x = nameNoSym "x" in
+    let binds = mapFromSeq cmpSID [
+      (stringToSid id, PatNamed {ident = PName x, ty = _tyuk info, info = info})
+    ] in
+    TmMatch {
+      target = target,
+      pat = PatRecord {bindings = binds, ty = _tyuk info, info = info},
+      thn = _var info x, els = TmNever {ty = _tyuk info, info = info},
+      ty = _tyuk info, info = info}
 
   sem _rtpplEscapeName : Name -> Name
   sem _rtpplEscapeName =
@@ -184,8 +203,8 @@ lang RtpplCompileExprExtension =
   RtpplCompileBase + MExprAst + MExprSym + MExprTypeCheck
 
   syn Expr =
-  | TmRead {portId : String, tyData : Type, ty : Type, info : Info}
-  | TmWrite {portId : String, src : Expr, delay : Expr, tyData : Type, ty : Type, info : Info}
+  | TmRead {portId : String, ty : Type, info : Info}
+  | TmWrite {portId : String, src : Expr, delay : Expr, ty : Type, info : Info}
   | TmSdelay {e : Expr, ty : Type, info : Info}
 
   sem infoTm =
@@ -221,12 +240,10 @@ lang RtpplCompileExprExtension =
   sem symbolizeExpr : SymEnv -> Expr -> Expr
   sem symbolizeExpr env =
   | TmRead t ->
-    TmRead {t with tyData = symbolizeType env t.tyData,
-                   ty = symbolizeType env t.ty}
+    TmRead {t with ty = symbolizeType env t.ty}
   | TmWrite t ->
     TmWrite {t with src = symbolizeExpr env t.src,
                     delay = symbolizeExpr env t.delay,
-                    tyData = symbolizeType env t.tyData,
                     ty = symbolizeType env t.ty}
   | TmSdelay t ->
     TmSdelay {t with e = symbolizeExpr env t.e,
@@ -235,17 +252,17 @@ lang RtpplCompileExprExtension =
   sem typeCheckExpr : TCEnv -> Expr -> Expr
   sem typeCheckExpr env =
   | TmRead t ->
+    let tyData = newvar env.currentLvl t.info in
     let tyRes = newvar env.currentLvl t.info in
-    unify [t.info] (tyseq_ (tytuple_ [tytuple_ [tyint_, tyint_], t.tyData])) tyRes;
+    unify [t.info] (tyseq_ (tytuple_ [tytuple_ [tyint_, tyint_], tyData])) tyRes;
     TmRead {t with ty = tyRes}
   | TmWrite t ->
     let src = typeCheckExpr env t.src in
     let delay = typeCheckExpr env t.delay in
     let tyRes = newvar env.currentLvl t.info in
     let tyData = newvar env.currentLvl t.info in
-    unify [t.info] t.tyData tyData;
     unify [t.info] (tyTm src) tyData;
-    unify [t.info] (tytuple_ [tytuple_ [tyint_, tyint_], t.tyData]) tyRes;
+    unify [t.info] (tytuple_ [tytuple_ [tyint_, tyint_], tyData]) tyRes;
     unify [t.info] tyint_ (tyTm delay);
     TmWrite {t with src = src, ty = tyRes}
   | TmSdelay t ->
@@ -262,13 +279,11 @@ lang RtpplCompileExprExtension =
 
   sem pprintCode indent env =
   | TmRead t ->
-    match getTypeStringCode indent env t.tyData with (env, tyData) in
-    (env, join ["read ", t.portId, " : ", tyData])
+    (env, join ["read ", t.portId])
   | TmWrite t ->
     match pprintCode indent env t.src with (env, src) in
     match pprintCode indent env t.delay with (env, delay) in
-    match getTypeStringCode indent env t.tyData with (env, tyData) in
-    (env, join ["write ", src, " -> ", t.portId, " (", delay, ") : ", tyData])
+    (env, join ["write ", src, " -> ", t.portId, " (", delay, ")"])
   | TmSdelay t ->
     match pprintCode indent env t.e with (env, e) in
     (env, join ["sdelay ", e])
@@ -309,72 +324,7 @@ lang RtpplCompileType = RtpplCompileBase + DPPLParser
     TyArrow {from = compileRtpplType from, to = compileRtpplType to, info = info}
 end
 
-lang RtpplPortWriteCompile =
-  RtpplCompileExprExtension + MExprPrettyPrint + DPPLParser
-
-  sem compilePortWrite : CompileEnv -> Name -> Expr -> Expr
-  sem compilePortWrite env taskId =
-  | TmWrite {portId = portStr, src = src, delay = delay, tyData = tyData,
-             info = info} ->
-    let rtIds = getRuntimeIds () in
-    let portId = _getPortIdentifier taskId portStr in
-    TmApp {
-      lhs = compilePortWriteH env rtIds info src portId tyData,
-      rhs = delay, ty = _tyuk info, info = info }
-
-  sem compilePortWriteH : CompileEnv -> RuntimeIds -> Info -> Expr -> String
-                       -> Type -> Expr
-  sem compilePortWriteH env rtIds info msg portId =
-  | TyFloat _ ->
-    let writeId = rtIds.writeFloat in
-    let liftedArgs = getCapturedTopLevelVars env writeId in
-    let writeFun = appSeq_ (_var info writeId) liftedArgs in
-    TmApp {
-      lhs = TmApp {
-        lhs = writeFun,
-        rhs = _str info portId, ty = _tyuk info, info = info },
-      rhs = msg, ty = _tyuk info, info = info }
-  | (TyDist {ty = TyRecord {fields = fields}}) & ty ->
-    let isFloatField = lam fieldTy.
-      match fieldTy with TyFloat _ then true
-      else false
-    in
-    let writeId = rtIds.writeDistFloatRecord in
-    -- NOTE(larshum, 2023-04-17): For now, we only support distributions
-    -- over a record where all fields are floating-point values.
-    if forAll isFloatField (mapValues fields) then
-      let nfields = mapSize fields in
-      let liftedArgs = getCapturedTopLevelVars env writeId in
-      let writeFun = appSeq_ (_var info writeId) liftedArgs in
-      -- NOTE(larshum, 2023-04-18): We deconstruct the distribution to a pair
-      -- of sequences, containing the samples and their associated weights,
-      -- using the 'distEmpiricalSamples' builtin of DPPL.
-      let msgExpr = TmApp {
-        lhs = TmConst {val = CDistEmpiricalSamples (), ty = _tyuk info, info = info},
-        rhs = _unsafe msg, ty = _tyuk info, info = info
-      } in
-      TmApp {
-        lhs = TmApp {
-          lhs = TmApp {
-            lhs = writeFun, rhs = _str info portId,
-            ty = _tyuk info, info = info },
-          rhs = msgExpr, ty = _tyuk info, info = info },
-        rhs = TmConst {val = CInt {val = nfields}, ty = _tyuk info, info = info},
-        ty = _tyuk info, info = info }
-    else compilePortWriteDefault info ty
-  | ty -> compilePortWriteDefault info ty
-
-  sem compilePortWriteDefault : Info -> Type -> Expr
-  sem compilePortWriteDefault info =
-  | ty ->
-    let tyStr = type2str ty in
-    let msg = join ["Writing to ports of type ", tyStr, " is not supported"] in
-    errorSingle [info] msg
-end
-
-lang RtpplDPPLCompile =
-  RtpplPortWriteCompile + RtpplCompileExprExtension + RtpplCompileType
-
+lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
   sem compileRtpplTop : RtpplTopEnv -> RtpplTop -> (RtpplTopEnv, Expr)
   sem compileRtpplTop env =
   | ConstantRtpplTop {id = {v = id}, ty = ty, e = e, info = info} ->
@@ -506,9 +456,7 @@ lang RtpplDPPLCompile =
   | ReadRtpplStmt {port = {v = portStr}, dst = {v = dst}, proj = proj, info = info} ->
     let portId = _getPortIdentifier env.topId portStr in
     match mapLookup portId env.portTypes with Some ty then
-      let readExpr = TmRead {
-        portId = portStr, tyData = compileRtpplType ty,
-        ty = _tyuk info, info = info } in
+      let readExpr = TmRead {portId = portStr, ty = _tyuk info, info = info} in
       let body =
         match proj with Some {v = label} then
           TmRecordUpdate {
@@ -531,8 +479,7 @@ lang RtpplDPPLCompile =
       TmLet {
         ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyuk info,
         body = TmWrite { portId = portStr, src = compileRtpplExpr src
-                       , delay = delayExpr, tyData = compileRtpplType ty
-                       , ty = _tyuk info, info = info },
+                       , delay = delayExpr, ty = _tyuk info, info = info },
         inexpr = uunit_, ty = _tyuk info, info = info }
     else
       errorSingle [info] "Reference to undefined port"
@@ -674,16 +621,7 @@ lang RtpplDPPLCompile =
   | IdentPlusExprRtpplExpr {
       id = {v = id}, next = ProjectionRtpplExprNoIdent {id = {v = projId}},
       info = info } ->
-    let fieldId = nameSym projId in
-    let fieldPat = PatNamed {
-      ident = PName fieldId, ty = _tyuk info, info = info } in
-    let recPat = PatRecord {
-      bindings = mapFromSeq cmpSID [(stringToSid projId, fieldPat)],
-      ty = _tyuk info, info = info } in
-    TmMatch {
-      target = _var info id, pat = recPat, thn = _var info fieldId,
-      els = TmNever {ty = _tyuk info, info = info}, ty = _tyuk info,
-      info = info }
+    _proj info (_var info id) projId
   | LiteralRtpplExpr {const = c} ->
     compileRtpplConst c
   | AddRtpplExpr {left = l, right = r, info = info} ->
@@ -783,125 +721,278 @@ lang RtpplDPPLCompile =
 end
 
 lang RtpplCompileGenerated = RtpplCompileType
-  sem rtpplReadTypeExpr : RuntimeIds -> String -> RtpplType -> Expr
-  sem rtpplReadTypeExpr rtIds portId =
+  sem isFloatField =
+  | {ty = FloatRtpplType _} -> true
+  | _ -> false
+
+  -- NOTE(larshum, 2023-04-19): When reading an encoded distribution, we get a
+  -- sequence of weight/sample tuples. Here, we convert this sequence back to
+  -- an empirical distribution.
+  sem encodingToDistribution : Info -> Expr
+  sem encodingToDistribution =
+  | info ->
+    let tsv = nameNoSym "tsv" in
+    let tuplePatBinds =
+      mapFromSeq cmpSID
+        [ (stringToSid "0", _pvar info (nameNoSym "ts"))
+        , (stringToSid "1", _pvar info (nameNoSym "v")) ]
+    in
+    let dist = TmDist {
+      dist = DEmpirical {samples = _var info (nameNoSym "v")},
+      ty = _tyuk info, info = info
+    } in
+    let distRecordBinds =
+      mapFromSeq cmpSID
+        [ (stringToSid "0", _var info (nameNoSym "ts"))
+        , (stringToSid "1", dist) ]
+    in
+    TmLam {
+      ident = tsv, tyAnnot = _tyuk info, tyIdent = _tyuk info,
+      body = TmMatch {
+        target = _var info tsv,
+        pat = PatRecord {bindings = tuplePatBinds, ty = _tyuk info, info = info},
+        thn = TmRecord {bindings = distRecordBinds, ty = _tyuk info, info = info},
+        els = TmNever {ty = _tyuk info, info = info},
+        ty = _tyuk info, info = info},
+      ty = _tyuk info, info = info}
+
+  -- NOTE(larshum, 2023-04-25): When writing a distribution, we first encode it
+  -- as a tuple of samples and weights, before sending it.
+  sem distributionToEncoding : Info -> Expr
+  sem distributionToEncoding =
+  | info ->
+    let tsv = nameNoSym "tsv" in
+    let tuplePatBinds =
+      mapFromSeq cmpSID
+        [ (stringToSid "0", _pvar info (nameNoSym "ts"))
+        , (stringToSid "1", _pvar info (nameNoSym "v")) ]
+    in
+    let samplesExpr = TmApp {
+      lhs = TmConst {val = CDistEmpiricalSamples (), ty = _tyuk info, info = info},
+      rhs = _var info (nameNoSym "v"), ty = _tyuk info, info = info
+    } in
+    let sampleBinds =
+      mapFromSeq cmpSID
+        [ (stringToSid "0", _var info (nameNoSym "ts"))
+        , (stringToSid "1", _unsafe samplesExpr) ]
+    in
+    TmLam {
+      ident = tsv, tyAnnot = _tyuk info, tyIdent = _tyuk info,
+      body = TmMatch {
+        target = _var info tsv,
+        pat = PatRecord {bindings = tuplePatBinds, ty = _tyuk info, info = info},
+        thn = TmRecord {bindings = sampleBinds, ty = _tyuk info, info = info},
+        els = TmNever {ty = _tyuk info, info = info},
+        ty = _tyuk info, info = info},
+      ty = _tyuk info, info = info}
+
+  sem rtpplReadExprType : RuntimeIds -> Expr -> RtpplType -> Expr
+  sem rtpplReadExprType rtIds fdExpr =
   | FloatRtpplType {info = info} ->
     TmApp {
-      lhs = _var info rtIds.readFloat,
-      rhs = _str info portId, ty = _tyuk info, info = info}
+      lhs = _var info rtIds.readFloat, rhs = fdExpr,
+      ty = _tyuk info, info = info }
   | DistRtpplType {ty = RecordRtpplType {fields = fields}, info = info} ->
-    let isFloatField = lam field.
-      match field with {ty = FloatRtpplType _} then true
-      else false
-    in
     if forAll isFloatField fields then
-      -- NOTE(larshum, 2023-04-19): When reading the encoded distribution, we
-      -- get a sequence of weight/sample pairs. Here, we convert this sequence
-      -- back to an empirical distribution.
-      let transformDistTsv =
-        let tsv = nameNoSym "tsv" in
-        let tuplePatBinds =
-          mapFromSeq cmpSID
-            [ (stringToSid "0", _pvar info (nameNoSym "ts"))
-            , (stringToSid "1", _pvar info (nameNoSym "v")) ]
-        in
-        let dist = TmDist {
-          dist = DEmpirical {samples = _var info (nameNoSym "v")},
-          ty = _tyuk info, info = info
-        } in
-        let distRecordBinds =
-          mapFromSeq cmpSID
-            [ (stringToSid "0", _var info (nameNoSym "ts"))
-            , (stringToSid "1", dist) ]
-        in
-        TmLam {
-          ident = tsv, tyAnnot = _tyuk info, tyIdent = _tyuk info,
-          body = TmMatch {
-            target = _var info tsv,
-            pat = PatRecord {bindings = tuplePatBinds, ty = _tyuk info, info = info},
-            thn = TmRecord {bindings = distRecordBinds, ty = _tyuk info, info = info},
-            els = TmNever {ty = _tyuk info, info = info},
-            ty = _tyuk info, info = info},
-          ty = _tyuk info, info = info}
-      in
+      let transformExpr = encodingToDistribution info in
       TmApp {
         lhs = TmApp {
           lhs = TmConst {val = CMap (), ty = _tyuk info, info = info},
-          rhs = transformDistTsv, ty = _tyuk info, info = info},
+          rhs = transformExpr, ty = _tyuk info, info = info},
         rhs = TmApp {
           lhs = TmApp {
-            lhs = _var info rtIds.readDistFloatRecord,
-            rhs = _str info portId, ty = _tyuk info, info = info},
-          rhs = TmConst {val = CInt {val = length fields}, ty = _tyuk info, info = info},
+            lhs = _var info rtIds.readDistFloatRecord, rhs = fdExpr,
+            ty = _tyuk info, info = info},
+          rhs = TmConst {
+            val = CInt {val = length fields}, ty = _tyuk info, info = info},
           ty = _tyuk info, info = info},
         ty = _tyuk info, info = info}
     else
-      errorSingle [info] "Reading from ports of this type is not supported"
+      let distLimitErrMsg = join [
+        "Currently, the compiler only supports reading distributions of records\n",
+        "where all fields are floating-point numbers."
+      ] in
+      errorSingle [info] distLimitErrMsg
   | ty ->
     errorSingle [get_RtpplType_info ty] "Reading from ports of this type is not supported"
 
-  sem generateInitCode : CompileEnv -> RtpplTask -> Expr
-  sem generateInitCode env =
-  | TaskRtpplTask {id = {v = id}, templateId = {v = tid}, info = info} ->
-    let toInputSeqFieldType = lam inputPort.
-      match inputPort with {id = id, ty = ty} in
-      let tsv =
-        let ids = getRuntimeIds () in
-        ids.tsv
-      in
-      let fieldType = TySeq {
-        ty = TyApp {
-          lhs = TyCon {ident = tsv, info = info},
-          rhs = compileRtpplType ty, info = info },
-        info = info
-      } in
-      (stringToSid id, fieldType)
-    in
-    let toUpdateFieldExpr = lam inputPort.
-      match inputPort with {id = portStr, ty = ty} in
-      let rtIds = getRuntimeIds () in
-      let portId = _getPortIdentifier id portStr in
-      let ty = resolveTypeAlias env.aliases ty in
-      ( stringToSid portStr
-      , _unsafe (rtpplReadTypeExpr rtIds portId ty) )
-    in
-    match mapLookup tid env.ports with Some ports then
-      let inputPorts = filter (lam p. p.isInput) ports in
-      let recFields = mapFromSeq cmpSID (map toInputSeqFieldType inputPorts) in
-      let updFields = mapFromSeq cmpSID (map toUpdateFieldExpr inputPorts) in
-      let initFields =
-        mapMapWithKey
-          (lam. lam. TmSeq {tms = [], ty = _tyuk info, info = info})
-          updFields
-      in
-      let inputRecordTy = TyCon {ident = inputRecordId, info = info} in
-      let inputSeqsInit = TmApp {
-        lhs = TmConst {val = CRef (), ty = _tyuk info, info = info},
-        rhs = TmRecord {bindings = initFields, ty = inputRecordTy, info = info},
+  sem rtpplWriteExprType : RuntimeIds -> Expr -> Expr -> RtpplType -> Expr
+  sem rtpplWriteExprType rtIds fdExpr msgsExpr =
+  | FloatRtpplType {info = info} ->
+    TmApp {
+      lhs = TmApp {
+        lhs = _var info rtIds.writeFloat, rhs = fdExpr,
+        ty = _tyuk info, info = info},
+      rhs = msgsExpr, ty = _tyuk info, info = info}
+  | DistRtpplType {ty = RecordRtpplType {fields = fields}, info = info} ->
+    if forAll isFloatField fields then
+      let transformExpr = distributionToEncoding info in
+      TmApp {
+        lhs = TmApp {
+          lhs = TmApp {
+            lhs = _var info rtIds.writeDistFloatRecord, rhs = fdExpr,
+            ty = _tyuk info, info = info},
+          rhs = TmConst {
+            val = CInt {val = length fields}, ty = _tyuk info, info = info},
+          ty = _tyuk info, info = info},
+        rhs = TmApp {
+          lhs = TmApp {
+            lhs = TmConst {val = CMap (), ty = _tyuk info, info = info},
+            rhs = transformExpr, ty = _tyuk info, info = info},
+          rhs = msgsExpr, ty = _tyuk info, info = info},
+        ty = _tyuk info, info = info}
+    else
+      let distLimitErrMsg = join [
+        "Currently, the compiler only supports writing distributions of records\n",
+        "where all fields are floating-point numbers."
+      ] in
+      errorSingle [info] distLimitErrMsg
+  | ty ->
+    errorSingle [get_RtpplType_info ty] "Writing to ports of this type is not supported"
+
+  sem getPortFileDescriptor : Info -> String -> Expr
+  sem getPortFileDescriptor info =
+  | portStr ->
+    _proj info (_var info fileDescriptorsId) portStr
+
+  sem getOutputBufferExpr : Info -> String -> Expr
+  sem getOutputBufferExpr info =
+  | portStr ->
+    let targetExpr = TmApp {
+      lhs = TmConst {val = CDeRef (), ty = _tyuk info, info = info},
+      rhs = _var info outputSeqsId, ty = _tyuk info, info = info
+    } in
+    _proj info targetExpr portStr
+
+  sem generateFileDescriptorCode : RuntimeIds -> Name -> Info
+                                -> [PortData] -> Expr
+  sem generateFileDescriptorCode rtIds taskId info =
+  | ports ->
+    let openFileDescField = lam port.
+      let portId = _getPortIdentifier taskId port.id in
+      let openFileExpr = TmApp {
+        lhs = _var info rtIds.openFile, rhs = _str info portId,
         ty = _tyuk info, info = info
       } in
+      (stringToSid port.id, openFileExpr)
+    in
+    let closeFileDescExpr = lam port.
+      TmLet {
+        ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyuk info,
+        body = TmApp {
+          lhs = _var info rtIds.closeFile,
+          rhs = _proj info (_var info fileDescriptorsId) port.id,
+          ty = _tyuk info, info = info},
+        inexpr = uunit_, ty = _tyuk info, info = info}
+    in
+    let openFilesExpr = TmRecord {
+      bindings = mapFromSeq cmpSID (map openFileDescField ports),
+      ty = _tyuk info, info = info
+    } in
+    let closeFilesExpr = TmLam {
+      ident = nameNoSym "", tyAnnot = _tyuk info, tyIdent = _tyuk info,
+      body = bindall_ (map closeFileDescExpr ports),
+      ty = _tyuk info, info = info
+    } in
+    bindall_ [
+      TmLet {
+        ident = fileDescriptorsId, tyAnnot = _tyuk info, tyBody = _tyuk info,
+        body = openFilesExpr, inexpr = uunit_, ty = _tyuk info, info = info},
+      TmLet {
+        ident = closeFileDescriptorsId, tyAnnot = _tyuk info, tyBody = _tyuk info,
+        body = closeFilesExpr, inexpr = uunit_, ty = _tyuk info, info = info} ]
+
+  sem generateBufferInitializationCode : Name -> Info -> [PortData] -> Expr
+  sem generateBufferInitializationCode bufferId info =
+  | ports ->
+    let initEmptySeq = lam port.
+      (stringToSid port.id, TmSeq {tms = [], ty = _tyuk info, info = info})
+    in
+    let bufferInit = TmRecord {
+      bindings = mapFromSeq cmpSID (map initEmptySeq ports),
+      ty = _tyuk info, info = info
+    } in
+    TmLet {
+      ident = bufferId, tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmApp {
+        lhs = TmConst {val = CRef (), ty = _tyuk info, info = info},
+        rhs = bufferInit, ty = _tyuk info, info = info},
+      inexpr = uunit_, ty = _tyuk info, info = info}
+
+  sem generateInputUpdateCode : Info -> [PortData] -> Expr
+  sem generateInputUpdateCode info =
+  | inputPorts ->
+    let rtIds = getRuntimeIds () in
+    let updatePortData = lam port.
+      let fdExpr = getPortFileDescriptor info port.id in
+      (stringToSid port.id, rtpplReadExprType rtIds fdExpr port.ty)
+    in
+    let updateExpr = TmRecord {
+      bindings = mapFromSeq cmpSID (map updatePortData inputPorts),
+      ty = _tyuk info, info = info
+    } in
+    TmLet {
+      ident = updateInputsId, tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmLam {
+        ident = nameNoSym "", tyAnnot = _tyuk info, tyIdent = _tyuk info,
+        body = TmApp {
+          lhs = TmApp {
+            lhs = TmConst {val = CModRef (), ty = _tyuk info, info = info},
+            rhs = _var info inputSeqsId, ty = _tyuk info, info = info},
+          rhs = updateExpr, ty = _tyuk info, info = info},
+        ty = _tyuk info, info = info},
+      inexpr = uunit_, ty = _tyuk info, info = info}
+
+  sem generateOutputFlushCode : Info -> [PortData] -> Expr
+  sem generateOutputFlushCode info =
+  | outputPorts ->
+    let rtIds = getRuntimeIds () in
+    let flushPortData = lam port.
+      let fdExpr = getPortFileDescriptor info port.id in
+      let msgsExpr = getOutputBufferExpr info port.id in
+      TmLet {
+        ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyuk info,
+        body = rtpplWriteExprType rtIds fdExpr msgsExpr port.ty,
+        inexpr = uunit_, ty = _tyuk info, info = info }
+    in
+    let clearPortData = lam port.
+      (stringToSid port.id, TmSeq {tms = [], ty = _tyuk info, info = info})
+    in
+    let clearExpr = TmLet {
+      ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmApp {
+        lhs = TmApp {
+          lhs = TmConst {val = CModRef (), ty = _tyuk info, info = info},
+          rhs = _var info outputSeqsId, ty = _tyuk info, info = info},
+        rhs = TmRecord {
+          bindings = mapFromSeq cmpSID (map clearPortData outputPorts),
+          ty = _tyuk info, info = info},
+        ty = _tyuk info, info = info},
+      inexpr = uunit_, ty = _tyuk info, info = info
+    } in
+    TmLet {
+      ident = flushOutputsId, tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmLam {
+        ident = nameNoSym "", tyAnnot = _tyuk info, tyIdent = _tyuk info,
+        body = bindall_ (snoc (map flushPortData outputPorts) clearExpr),
+        ty = _tyuk info, info = info},
+      inexpr = uunit_, ty = _tyuk info, info = info}
+
+  sem generateTaskSpecificRuntime : CompileEnv -> RtpplTask -> Expr
+  sem generateTaskSpecificRuntime env =
+  | TaskRtpplTask {id = {v = id}, templateId = {v = tid}, info = info} ->
+    let rtIds = getRuntimeIds () in
+    match mapLookup tid env.ports with Some ports then
+      let ports = map (lam p. {p with ty = resolveTypeAlias env.aliases p.ty}) ports in
+      match partition (lam p. p.isInput) ports with (inputPorts, outputPorts) in
       bindall_ [
-        TmType {
-          ident = inputRecordId, params = [],
-          tyIdent = TyRecord {fields = recFields, info = info},
-          inexpr = uunit_, ty = _tyuk info, info = info },
-        TmLet {
-          ident = inputSeqsId, tyAnnot = _tyuk info, tyBody = _tyuk info,
-          body = inputSeqsInit, inexpr = uunit_, ty = _tyuk info, info = info },
-        TmLet {
-          ident = updateInputsId, tyAnnot = _tyuk info, tyBody = _tyuk info,
-          body = TmLam {
-            ident = nameNoSym "", tyAnnot = _tyuk info, tyIdent = _tyuk info,
-            body = TmApp {
-              lhs = TmApp {
-                lhs = TmConst {val = CModRef (), ty = _tyuk info, info = info},
-                rhs = _var info inputSeqsId, ty = _tyuk info, info = info },
-              rhs = TmRecord {bindings = updFields, ty = inputRecordTy, info = info},
-              ty = _tyuk info, info = info },
-            ty = _tyuk info, info = info },
-          inexpr = uunit_, ty = _tyuk info, info = info } ]
+        generateFileDescriptorCode rtIds id info ports,
+        generateBufferInitializationCode inputSeqsId info inputPorts,
+        generateBufferInitializationCode outputSeqsId info outputPorts,
+        generateInputUpdateCode info inputPorts,
+        generateOutputFlushCode info outputPorts ]
     else
-      errorSingle [info] "Compiler error in 'generateInitCode'"
+      errorSingle [info] "Compiler error in 'generateTaskSpecificRuntime'"
 end
 
 lang RtpplCompile =
@@ -947,23 +1038,42 @@ lang RtpplCompile =
 
   sem specializeRtpplExprs : CompileEnv -> Name -> Expr -> Expr
   sem specializeRtpplExprs env taskId =
-  | TmRead {portId = portId, tyData = tyData, info = info} ->
-    let x = nameNoSym "x" in
-    let readPat = PatRecord {
-      bindings = mapFromSeq cmpSID [
-        ( stringToSid portId
-        , PatNamed {ident = PName x, ty = _tyuk info, info = info} ) ],
+  | TmRead {portId = portId, info = info} ->
+    let targetExpr = TmApp {
+      lhs = TmConst {val = CDeRef (), ty = _tyuk info, info = info},
+      rhs = _var info inputSeqsId, ty = _tyuk info, info = info
+    } in
+    _proj info targetExpr portId
+  | TmWrite {portId = portId, src = src, delay = delay, info = info} ->
+    let rtIds = getRuntimeIds () in
+    let tsv =
+      let capturedArgs = getCapturedTopLevelVars env rtIds.tsv in
+      let args = join [capturedArgs, [delay, src]] in
+      appSeq_ (_var info rtIds.tsv) args
+    in
+    let outId = nameNoSym "out" in
+    let recUpdExpr = TmRecordUpdate {
+      rec = _var info outId, key = stringToSid portId,
+      value = TmApp {
+        lhs = TmApp {
+          lhs = TmConst {val = CCons (), ty = _tyuk info, info = info},
+          rhs = tsv, ty = _tyuk info, info = info},
+        rhs = _proj info (_var info outId) portId,
+        ty = _tyuk info, info = info},
       ty = _tyuk info, info = info
     } in
-    TmMatch {
-      target = TmApp {
-        lhs = TmConst {val = CDeRef (), ty = _tyuk info, info = info},
-        rhs = _var info inputSeqsId, ty = _tyuk info, info = info },
-      pat = readPat, thn = _var info x,
-      els = TmNever {ty = _tyuk info, info = info},
-      ty = tyData, info = info }
-  | TmWrite _ & writeExpr ->
-    compilePortWrite env taskId writeExpr
+    let outputsExpr = TmApp {
+      lhs = TmConst {val = CDeRef (), ty = _tyuk info, info = info},
+      rhs =  _var info outputSeqsId, ty = _tyuk info, info = info
+    } in
+    TmLet {
+      ident = outId, tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = outputsExpr, ty = _tyuk info, info = info,
+      inexpr = TmApp {
+        lhs = TmApp {
+          lhs = TmConst {val = CModRef (), ty = _tyuk info, info = info},
+          rhs = _var info outputSeqsId, ty = _tyuk info, info = info},
+        rhs = recUpdExpr, ty = _tyuk info, info = info} }
   | TmSdelay {e = e, info = info} ->
     let rtIds = getRuntimeIds () in
     let sdelayId = rtIds.sdelay in
@@ -971,10 +1081,11 @@ lang RtpplCompile =
     let sdelayFun = appSeq_ (_var info sdelayId) liftedArgs in
     TmApp {
       lhs = TmApp {
-        lhs = sdelayFun,
-        rhs = _var info updateInputsId,
-        ty = _tyuk info, info = info },
-      rhs = e, ty = _tyuk info, info = info }
+        lhs = TmApp {
+          lhs = sdelayFun, rhs = _var info flushOutputsId,
+          ty = _tyuk info, info = info},
+        rhs = _var info updateInputsId, ty = _tyuk info, info = info},
+      rhs = e, ty = _tyuk info, info = info}
   | t -> smap_Expr_Expr (specializeRtpplExprs env taskId) t
 
   -- NOTE(larshum, 2023-04-11): The AST of each task is produced by performing
@@ -1001,13 +1112,15 @@ lang RtpplCompile =
         let initArgs =
           concat
             liftedArgsInit
-            [ _var info updateInputsId, ulam_ "" taskRun ]
+            [ _var info updateInputsId
+            , _var info closeFileDescriptorsId
+            , ulam_ "" taskRun ]
         in
         let tailExpr = appSeq_ (nvar_ runtimeIds.init) initArgs in
         -- NOTE(larshum, 2023-04-17): We generate the task-specific runtime
         -- code and insert it directly after the pre-generated runtime.
         let initId = let x = getRuntimeIds () in x.init in
-        let initExpr = generateInitCode env task in
+        let initExpr = generateTaskSpecificRuntime env task in
         let ast = insertBindingsAfter (nameEq initId) initExpr env.ast in
         let ast = specializeRtpplExprs env id ast in
         let ast =
