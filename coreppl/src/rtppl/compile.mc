@@ -698,8 +698,7 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
 
   sem compileRtpplConst : RtpplConst -> Expr
   sem compileRtpplConst =
-  | LitIntRtpplConst {value = {v = i}, suffix = suffix, info = info} ->
-    let i = resolveRtpplTimeSuffix i suffix in
+  | LitIntRtpplConst {value = {v = i}, info = info} ->
     TmConst {val = CInt {val = i}, ty = TyInt {info = info}, info = info}
   | LitFloatRtpplConst {value = {v = f}, info = info} ->
     TmConst {val = CFloat {val = f}, ty = TyFloat {info = info}, info = info}
@@ -711,13 +710,6 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
     in
     let strTy = TySeq {ty = TyChar {info = info}, info = info} in
     TmSeq {tms = map toCharConst s, ty = strTy, info = info}
-
-  sem resolveRtpplTimeSuffix : Int -> Option RtpplTimeSuffix -> Int
-  sem resolveRtpplTimeSuffix i =
-  | None _
-  | Some (NanosRtpplTimeSuffix _) -> i
-  | Some (MillisRtpplTimeSuffix _) -> muli i (floorfi 1e6)
-  | Some (MicrosRtpplTimeSuffix _) -> muli i (floorfi 1e3)
 end
 
 lang RtpplCompileGenerated = RtpplCompileType
@@ -943,6 +935,9 @@ lang RtpplCompileGenerated = RtpplCompileType
         ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info}
 
+  -- TODO(larshum, 2023-04-27): Do we allow writing multiple times with
+  -- decreasing delays? If yes, then we need to sort the outputs before we
+  -- write them.
   sem generateOutputFlushCode : Info -> [PortData] -> Expr
   sem generateOutputFlushCode info =
   | outputPorts ->

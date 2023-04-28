@@ -39,6 +39,27 @@ lang BooleanTokenParser = TokenParser
   | BoolTok _ -> BoolRepr ()
 end
 
+lang TimedIntegerTokenParser = UIntTokenParser
+  sem timedIntToken pos1 pos2 str =
+  | val ->
+    let info = makeInfo pos1 pos2 in
+    { token = IntTok {info = info, val = val}
+    , lit = ""
+    , info = info
+    , stream = {pos = pos2, str = str}
+    }
+
+  sem parseIntCont acc pos1 pos2 =
+  | "s" ++ str ->
+    timedIntToken pos1 pos2 str (muli (string2int acc) (floorfi 1e9))
+  | "ms" ++ str ->
+    timedIntToken pos1 pos2 str (muli (string2int acc) (floorfi 1e6))
+  | "us" ++ str ->
+    timedIntToken pos1 pos2 str (muli (string2int acc) (floorfi 1e3))
+  | "ns" ++ str ->
+    timedIntToken pos1 pos2 str (string2int acc)
+end
+
 lang RTPPLLineCommentParser = WSACParser
   sem eatWSAC p =
   | "//" ++ xs -> eatComment p xs

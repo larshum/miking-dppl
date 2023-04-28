@@ -381,7 +381,7 @@ main() {
   // Distribution over positions
   actuator posDist : Dist(State)
 
-  task pos = positioning(1000ms)
+  task pos = positioning(1s)
 
   frontLeft -> pos.frontLeft
   frontRight -> pos.frontRight

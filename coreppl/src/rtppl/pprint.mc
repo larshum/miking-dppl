@@ -221,18 +221,10 @@ lang RtpplPrettyPrint = RtpplAst
 
   sem pprintRtpplConst : RtpplConst -> String
   sem pprintRtpplConst =
-  | LitIntRtpplConst {value = {v = i}, suffix = suffix} ->
-    concat (int2string i) (pprintRtpplTimeSuffix suffix)
+  | LitIntRtpplConst {value = {v = i}} -> int2string i
   | LitFloatRtpplConst {value = {v = f}} -> float2string f
   | LitBoolRtpplConst {value = {v = b}} -> if b then "true" else "false"
   | LitStringRtpplConst {value = {v = s}} -> join ["\"", escapeString s, "\""]
-
-  sem pprintRtpplTimeSuffix : Option RtpplTimeSuffix -> String
-  sem pprintRtpplTimeSuffix =
-  | None _ -> ""
-  | Some (MillisRtpplTimeSuffix _) -> "ms"
-  | Some (MicrosRtpplTimeSuffix _) -> "us"
-  | Some (NanosRtpplTimeSuffix _) -> "ns"
 
   sem pprintRtpplType : RtpplType -> String
   sem pprintRtpplType =
