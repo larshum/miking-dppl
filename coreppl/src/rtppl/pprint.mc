@@ -33,8 +33,6 @@ lang RtpplPrettyPrint = RtpplAst
     join ["  input ", id, " : ", pprintRtpplType ty]
   | OutputRtpplPort {id = {v = id}, ty = ty} ->
     join ["  output ", id, " : ", pprintRtpplType ty]
-  | ActuatorOutputRtpplPort {id = {v = id}, ty = ty} ->
-    join ["  actuator output ", id, " : ", pprintRtpplType ty]
 
   sem pprintRtpplParams : [{id : {i : Info, v : Name}, ty : RtpplType}] -> String
   sem pprintRtpplParams =

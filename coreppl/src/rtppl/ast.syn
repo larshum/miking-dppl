@@ -87,7 +87,6 @@ prod FunctionDef : RtpplTop =
 
 prod Input : RtpplPort = "input" id:LIdent ":" ty:RtpplType
 prod Output : RtpplPort = "output" id:LIdent ":" ty:RtpplType
-prod ActuatorOutput : RtpplPort = "actuator" "output" id:LIdent ":" ty:RtpplType
 
 prod Binding : RtpplStmt = "var" id:LName ":" ty:RtpplType "=" e:RtpplExpr
 prod Observe : RtpplStmt = "observe" e:RtpplExpr "~" d:RtpplExpr

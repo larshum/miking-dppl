@@ -162,8 +162,7 @@ lang RtpplCompileBase =
   sem getPortIdentifier : Name -> RtpplPort -> String
   sem getPortIdentifier taskId =
   | InputRtpplPort {id = {v = id}}
-  | OutputRtpplPort {id = {v = id}}
-  | ActuatorOutputRtpplPort {id = {v = id}} ->
+  | OutputRtpplPort {id = {v = id}} ->
     _getPortIdentifier taskId id
 
   sem _getPortIdentifier : Name -> String -> String
@@ -388,8 +387,7 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
   sem buildPortTypesMap : RtpplTopEnv -> RtpplPort -> RtpplTopEnv
   sem buildPortTypesMap env =
   | InputRtpplPort {id = {v = id}, ty = ty}
-  | OutputRtpplPort {id = {v = id} , ty = ty}
-  | ActuatorOutputRtpplPort {id = {v = id}, ty = ty} ->
+  | OutputRtpplPort {id = {v = id} , ty = ty} ->
     let str = _getPortIdentifier env.topId id in
     let ty = resolveTypeAlias env.aliases ty in
     {env with portTypes = mapInsert str ty env.portTypes}
@@ -1007,8 +1005,7 @@ lang RtpplCompile =
   sem toPortData =
   | InputRtpplPort {id = {v = id}, ty = ty} ->
     {id = id, isInput = true, ty = ty}
-  | OutputRtpplPort {id = {v = id}, ty = ty}
-  | ActuatorOutputRtpplPort {id = {v = id}, ty = ty} ->
+  | OutputRtpplPort {id = {v = id}, ty = ty} ->
     {id = id, isInput = false, ty = ty}
 
   sem compileRtpplToExpr : RtpplOptions -> [RtpplTop]

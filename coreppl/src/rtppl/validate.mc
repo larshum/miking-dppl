@@ -31,12 +31,10 @@ lang RtpplValidateNetwork = RtpplAst
   | UnusedActuatorInput Info
   | UnusedTaskInput Info
   | UnusedTaskOutput Info
-  | UnusedTaskActuatorOutput Info
   | UsedSensorOutput Info
   | UsedActuatorInput Info
   | UsedTaskInput Info
   | UsedTaskOutput Info
-  | UsedTaskActuatorOutput Info
 
   sem portStateInfo : PortState -> Info
   sem portStateInfo =
@@ -44,12 +42,10 @@ lang RtpplValidateNetwork = RtpplAst
   | UnusedActuatorInput i -> i
   | UnusedTaskInput i -> i
   | UnusedTaskOutput i -> i
-  | UnusedTaskActuatorOutput i -> i
   | UsedSensorOutput i -> i
   | UsedActuatorInput i -> i
   | UsedTaskInput i -> i
   | UsedTaskOutput i -> i
-  | UsedTaskActuatorOutput i -> i
 
   -- OPT(larshum, 2023-03-06): Use a more efficient data structure for storing
   -- strings, such as a trie.
@@ -96,8 +92,6 @@ lang RtpplValidateNetwork = RtpplAst
     insertPortErr id (UnusedTaskInput i1) config
   | OutputRtpplPort {id = {v = id}, info = i1} ->
     insertPortErr id (UnusedTaskOutput i1) config
-  | ActuatorOutputRtpplPort {id = {v = id}, info = i1} ->
-    insertPortErr id (UnusedTaskActuatorOutput i1) config
 
   sem addSensorOrActuatorPort : PortDecls -> RtpplExt -> PortDecls
   sem addSensorOrActuatorPort acc =
@@ -162,7 +156,6 @@ lang RtpplValidateNetwork = RtpplAst
   | ConnectionRtpplConnection {from = fromSpec, to = toSpec, info = info} ->
     let from = portSpecToPortId fromSpec in
     let to = portSpecToPortId toSpec in
-    validateActuatorConnection network info from to;
     let network =
       match mapLookup from network with Some portState then
         mapInsert from (updateOutputPortState info portState) network
@@ -175,23 +168,6 @@ lang RtpplValidateNetwork = RtpplAst
     else
       errorSingle [get_RtpplPortSpec_info toSpec]
         "Reference to undefined input port"
-
-  -- NOTE(larshum, 2023-04-05): This function validates that, when the to-port
-  -- of a connection is the input port of an actuator, the output port must
-  -- have been declared as an actuator output port. This is important as these
-  -- have different semantics from the standard output ports.
-  sem validateAcutatorConnection : Network -> Info -> PortId -> PortId -> ()
-  sem validateActuatorConnection network info from =
-  | to ->
-    match mapLookup to network
-    with Some (UnusedActuatorInput _ | UsedActuatorInput _) then
-      match mapLookup from network
-      with Some (UnusedTaskActuatorOutput _ | UsedTaskActuatorOutput _) then
-        ()
-      else
-        errorSingle [info]
-          "Actuator must be connected to one task actuator output port"
-    else ()
 
   sem portSpecToPortId : RtpplPortSpec -> PortId
   sem portSpecToPortId =
@@ -208,10 +184,6 @@ lang RtpplValidateNetwork = RtpplAst
   | UnusedTaskOutput i
   | UsedTaskOutput i ->
     UsedTaskOutput i
-  | UnusedTaskActuatorOutput i ->
-    UsedTaskActuatorOutput i
-  | UsedTaskActuatorOutput i ->
-    errorSingle [i, info] "Actuator outputs cannot be mapped to multiple input ports"
   | UnusedActuatorInput i
   | UnusedTaskInput i
   | UsedActuatorInput i
@@ -230,10 +202,8 @@ lang RtpplValidateNetwork = RtpplAst
     errorSingle [i, info] "Multiple outputs cannot be mapped to one task input port"
   | UnusedSensorOutput i
   | UnusedTaskOutput i
-  | UnusedTaskActuatorOutput i
   | UsedSensorOutput i
-  | UsedTaskOutput i
-  | UsedTaskActuatorOutput i ->
+  | UsedTaskOutput i ->
     errorSingle [i, info] "Output ports cannot be used as input"
 
   sem validatePortState : () -> PortId -> PortState -> ()
@@ -242,8 +212,7 @@ lang RtpplValidateNetwork = RtpplAst
     errorSingle [i] "No task output is connected to this actuator."
   | UnusedSensorOutput i ->
     errorSingle [i] "The output from this sensor is not connected to any task"
-  | UnusedTaskOutput i
-  | UnusedTaskActuatorOutput i ->
+  | UnusedTaskOutput i ->
     let msg = join ["The output port ", portIdToString portId, " is unused."] in
     errorSingle [i] msg
   | UnusedTaskInput i ->
@@ -252,8 +221,7 @@ lang RtpplValidateNetwork = RtpplAst
   | UsedSensorOutput _
   | UsedActuatorInput _
   | UsedTaskInput _
-  | UsedTaskOutput _
-  | UsedTaskActuatorOutput _ ->
+  | UsedTaskOutput _ ->
     ()
 end
 
@@ -298,8 +266,7 @@ lang RtpplValidateNames = RtpplAst
   sem portIdAndInfo : RtpplPort -> (String, Info)
   sem portIdAndInfo =
   | InputRtpplPort {id = {v = id}, info = info}
-  | OutputRtpplPort {id = {v = id}, info = info}
-  | ActuatorOutputRtpplPort {id = {v = id}, info = info} ->
+  | OutputRtpplPort {id = {v = id}, info = info} ->
     (id, info)
 end
 

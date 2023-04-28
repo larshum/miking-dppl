@@ -51,12 +51,16 @@ lang TimedIntegerTokenParser = UIntTokenParser
 
   sem parseIntCont acc pos1 pos2 =
   | "s" ++ str ->
+    let pos2 = advanceCol pos2 1 in
     timedIntToken pos1 pos2 str (muli (string2int acc) (floorfi 1e9))
   | "ms" ++ str ->
+    let pos2 = advanceCol pos2 2 in
     timedIntToken pos1 pos2 str (muli (string2int acc) (floorfi 1e6))
   | "us" ++ str ->
+    let pos2 = advanceCol pos2 2 in
     timedIntToken pos1 pos2 str (muli (string2int acc) (floorfi 1e3))
   | "ns" ++ str ->
+    let pos2 = advanceCol pos2 2 in
     timedIntToken pos1 pos2 str (string2int acc)
 end
 

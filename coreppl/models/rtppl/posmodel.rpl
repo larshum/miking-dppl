@@ -350,7 +350,7 @@ def positioning(period : Int) : Unit {
   input speedLeft : Float
   input speedRight : Float
   input steeringAngle : Float
-  actuator output posDist : Dist(State)
+  output posDist : Dist(State)
 
   // TODO(larshum, 2023-04-14): For now, this is implemented through a runtime
   // function. How should it work in the end?
