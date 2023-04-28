@@ -1,16 +1,17 @@
 type DistanceObs = {
-  frontLeft : [TSV(Float)],
-  frontRight : [TSV(Float)],
-  rearLeft : [TSV(Float)],
-  rearRight : [TSV(Float)],
-  sideLeft : [TSV(Float)],
-  sideRight : [TSV(Float)]
+  frontLeft : TSV(Float),
+  frontRight : TSV(Float),
+  rearLeft : TSV(Float),
+  rearRight : TSV(Float),
+  sideLeft : TSV(Float),
+  sideRight : TSV(Float)
 }
 
 def distanceObsDefault() : DistanceObs {
+  var t : TSV(Float) = tsv(0, 0.0)
   return {
-    frontLeft = [], frontRight = [], rearLeft = [],
-    rearRight = [], sideLeft = [], sideRight = []
+    frontLeft = t, frontRight = t, rearLeft = t,
+    rearRight = t, sideLeft = t, sideRight = t
   }
 }
 
@@ -50,7 +51,7 @@ type Coordinate = {
 
 type SensorData = {
   expectedDistance : State -> Float,
-  obs : [TSV(Float)],
+  obs : TSV(Float),
   maxRange : Float,
   stddev : Float
 }
@@ -164,7 +165,7 @@ def collectWheelObsEvents(wheelObs : WheelObs) : [TSV(Event)] {
 }
 
 def timeDeltaSec(t0 : Int, t1 : Int) : Float {
-  return intToFloat(subInt(t1, t0)) / intToFloat(1000ms)
+  return intToFloat(subInt(t1, t0)) / intToFloat(1s)
 }
 
 // Models the transition from a state at a previous estimation to the state at
@@ -222,14 +223,14 @@ def expectedObservedDistance(m : RoomMap, o : Offset, s : State) : Float {
   return acc.d
 }
 
-def longRangeSensorData(expectedDistance : State -> Float, obs : [TSV(Float)]) : SensorData {
+def longRangeSensorData(expectedDistance : State -> Float, obs : TSV(Float)) : SensorData {
   return {
     expectedDistance = expectedDistance, obs = obs,
     maxRange = maxLongRangeSensorDist, stddev = longRangeSensorStddev
   }
 }
 
-def shortRangeSensorData(expectedDistance : State -> Float, obs : [TSV(Float)]) : SensorData {
+def shortRangeSensorData(expectedDistance : State -> Float, obs : TSV(Float)) : SensorData {
   return {
     expectedDistance = expectedDistance, obs = obs,
     maxRange = maxShortRangeSensorDist, stddev = shortRangeSensorStddev
@@ -247,16 +248,14 @@ def interpolateState(s0 : State, s1 : State, rate : Float) : State {
 }
 
 def observeSensor(s : SensorData, s0 : State, s1 : State, period : Int) : Unit {
-  loop for obs in s.obs {
-    var timeOffset : Float = intToFloat(addInt(period, timestamp(obs))) / intToFloat(period)
-    var interpState : State = interpolateState(s0, s1, timeOffset)
-    var f : State -> Float = s.expectedDistance
-    var estimatedDistance : Float = f(interpState)
-    var obsDist : Float = value(obs)
-    cond if obsDist < s.maxRange {
-      observe obsDist ~ Gaussian(estimatedDistance, s.stddev)
-    } else {}
-  }
+  var timeOffset : Float = intToFloat(addInt(period, timestamp(s.obs))) / intToFloat(period)
+  var interpState : State = interpolateState(s0, s1, timeOffset)
+  var f : State -> Float = s.expectedDistance
+  var estimatedDistance : Float = f(interpState)
+  var obsDist : Float = value(s.obs)
+  cond if obsDist < s.maxRange {
+    observe obsDist ~ Gaussian(estimatedDistance, s.stddev)
+  } else {}
 }
 
 def observationModel(m : RoomMap, distObs : DistanceObs,
@@ -326,6 +325,21 @@ def positionModel(m : RoomMap, d : Dist(State), distObs : DistanceObs,
   return nextState
 }
 
+def cmpFloatTsvTimestamp(l : TSV(Float), r : TSV(Float)) : Int {
+  return cmpTimestamp(timestamp(l), timestamp(r))
+}
+
+def medianTsv(tsvs : [TSV(Float)]) : TSV(Float) {
+  var sorted : [TSV(Float)] = sort(cmpFloatTsvTimestamp, tsvs)
+  var res : TSV(Float) = tsv(0, inf)
+  // NOTE(larshum, 2023-04-20): For an even number of inputs, this is
+  // technically not producing the median.
+  cond res if gtInt(|sorted|, 0) {
+    res = sorted[divInt(|sorted|, 2)]
+  } else {}
+  return res
+}
+
 def positioning(period : Int) : Unit {
   input frontLeft : Float
   input frontRight : Float
@@ -347,12 +361,18 @@ def positioning(period : Int) : Unit {
     sdelay period
 
     var distObs : DistanceObs = distanceObsDefault()
-    read frontLeft to distObs.frontLeft
-    read frontRight to distObs.frontRight
-    read rearLeft to distObs.rearLeft
-    read rearRight to distObs.rearRight
-    read sideLeft to distObs.sideLeft
-    read sideRight to distObs.sideRight
+    read frontLeft to tmp
+    distObs.frontLeft = medianTsv(tmp)
+    read frontRight to tmp
+    distObs.frontRight = medianTsv(tmp)
+    read rearLeft to tmp
+    distObs.rearLeft = medianTsv(tmp)
+    read rearRight to tmp
+    distObs.rearRight = medianTsv(tmp)
+    read sideLeft to tmp
+    distObs.sideLeft = medianTsv(tmp)
+    read sideRight to tmp
+    distObs.sideRight = medianTsv(tmp)
 
     var wheelObs : WheelObs = wheelObsDefault()
     read speedLeft to wheelObs.speedLeft
