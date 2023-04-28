@@ -6,7 +6,7 @@ type RtpplOptions = {
   debugCompileMExpr : Bool,
   outputPath : String,
   file : String,
-  particles : Int
+  particlesPerBatch : Int
 }
 
 let rtpplDefaultOptions = {
@@ -15,7 +15,7 @@ let rtpplDefaultOptions = {
   debugCompileMExpr = false,
   outputPath = "",
   file = "",
-  particles = 1000
+  particlesPerBatch = 100
 }
 
 let optionsConfig = [
@@ -31,15 +31,24 @@ let optionsConfig = [
   ( [("--out-path", " ", "<path>")]
   , "Sets the output path at which the compilation results are to be placed"
   , lam p. {p.options with outputPath = argToString p} ),
-  ( [("--particles", " ", "<n>")]
-  , "Sets the number of particles to use for infers"
-  , lam p. {p.options with particles = argToInt p} )
+  ( [("--ppb", " ", "<n>")]
+  , "Sets the number of particles to use in each inference batch"
+  , lam p. {p.options with particlesPerBatch = argToInt p} )
 ]
+
+let printHelpMsgAndExit = lam.
+  let msg = join [
+    "Usage: rtppl [<options>] file\n\n",
+    argHelpOptions optionsConfig,
+    "\n"
+  ] in
+  print msg;
+  exit 0
 
 let parseOptions : () -> RtpplOptions = lam.
   let result = argParse rtpplDefaultOptions optionsConfig in
   match result with ParseOK r then
     match r.strings with [filepath] ++ _ then
       {r.options with file = filepath}
-    else error "No input file specified"
+    else printHelpMsgAndExit ()
   else argPrintError result; exit 1

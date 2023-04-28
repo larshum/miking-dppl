@@ -91,7 +91,7 @@ prod Output : RtpplPort = "output" id:LIdent ":" ty:RtpplType
 prod Binding : RtpplStmt = "var" id:LName ":" ty:RtpplType "=" e:RtpplExpr
 prod Observe : RtpplStmt = "observe" e:RtpplExpr "~" d:RtpplExpr
 prod Assume : RtpplStmt = "assume" id:LName "~" d:RtpplExpr
-prod Infer : RtpplStmt = "infer" id:LName "<-" model:RtpplExpr
+prod Infer : RtpplStmt = "infer" id:LName "<-" model:RtpplExpr "deadline" d:RtpplExpr
 prod Degenerate : RtpplStmt = "degenerate"
 prod Resample : RtpplStmt = "resample"
 prod Read : RtpplStmt = "read" port:LIdent "to" (dst:LName ("." proj:LIdent)?)

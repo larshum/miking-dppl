@@ -104,6 +104,23 @@ let sdelay : (() -> ()) -> (() -> ()) -> Int -> Int =
   updateInputs ();
   overrun
 
+let rtpplInferRunner =
+  lam inferModel. lam distToSamples. lam samplesToDist. lam deadline.
+  let deadlineTs = addTimespec (deref monoLogicalTime) (nanosToTimespec deadline) in
+  recursive let helper = lam acc.
+    let d = inferModel () in
+    match distToSamples d with (samples, weights) in
+    recursive let merge = lam acc. lam l. lam r.
+      match (l, r) with ([lh] ++ lt, [rh] ++ rt) then
+        merge (cons (lh, rh) acc) lt rt
+      else acc
+    in
+    let acc = concat acc (merge [] weights samples) in
+    let t = getMonotonicTime () in
+    if gti (cmpTimespec t deadlineTs) 0 then samplesToDist acc
+    else helper acc
+  in helper []
+
 let openFileDescriptor : String -> Int = lam file.
   externalOpenFileNonblocking file
 
