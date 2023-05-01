@@ -25,3 +25,44 @@ external read_dist_float_record_named_pipe
 external write_dist_float_record_named_pipe
   : int -> int -> (opaque array * float array) tsv -> unit
   = "write_dist_float_record_named_pipe_stub"
+
+external rtppl_batched_inference_stub
+  : (opaque list -> opaque list) -> timespec -> opaque list
+  = "rtppl_batched_inference_stub"
+
+exception Rtppl_batched_infer_timeout
+
+let rtppl_batched_inference infer_model deadline maxBatches =
+  let is_running = Atomic.make false in
+  let f _ =
+    if Atomic.get is_running then
+      raise Rtppl_batched_infer_timeout
+    else
+      ()
+  in
+  Sys.set_signal Sys.sigusr1 (Sys.Signal_handle f);
+  (* NOTE(larshum, 2023-05-01): Sets an upper bound on the number of
+     batches. This prevents an intial estimation from producing an
+     unreasonable amount of samples, as this would slow down later
+     estimations sampling from the original distribution. *)
+  let n = maxBatches in
+  let model _ =
+    let acc = Atomic.make [] in
+    let rec work i =
+      if i == n then () else
+      let upd = infer_model () :: Atomic.get acc in
+      Atomic.set acc upd;
+      work (i+1)
+    in
+    (* NOTE(larshum, 2023-05-01): We have to catch all exceptions rather than
+       just the exception we raise because the exception we raise may be
+       captured by called code (and hopefully re-thrown). *)
+    (try
+      Atomic.set is_running true;
+      work 0;
+      Atomic.set is_running false
+    with _ ->
+      Atomic.set is_running false);
+    Atomic.get acc
+  in
+  rtppl_batched_inference_stub model deadline

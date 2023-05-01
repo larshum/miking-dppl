@@ -76,7 +76,7 @@ let delayBy : Int -> Int = lam delay.
     if gti c 0 then clockNanosleep waitTime; 0
     else if lti c 0 then
       let elapsedTime = diffTimespec endTime waitTime in
-      timespecToMillis elapsedTime
+      timespecToNanos elapsedTime
     else 0
   in
   modref monoLogicalTime waitTime;
@@ -105,21 +105,18 @@ let sdelay : (() -> ()) -> (() -> ()) -> Int -> Int =
   overrun
 
 let rtpplInferRunner =
-  lam inferModel. lam distToSamples. lam samplesToDist. lam deadline.
+  lam inferModel. lam distToSamples. lam samplesToDist. lam deadline. lam maxBatches.
   let deadlineTs = addTimespec (deref monoLogicalTime) (nanosToTimespec deadline) in
-  recursive let helper = lam acc.
+  let model = lam.
     let d = inferModel () in
-    match distToSamples d with (samples, weights) in
-    recursive let merge = lam acc. lam l. lam r.
-      match (l, r) with ([lh] ++ lt, [rh] ++ rt) then
-        merge (cons (lh, rh) acc) lt rt
-      else acc
-    in
-    let acc = concat acc (merge [] weights samples) in
-    let t = getMonotonicTime () in
-    if gti (cmpTimespec t deadlineTs) 0 then samplesToDist acc
-    else helper acc
-  in helper []
+    match distToSamples d with (s, w) in
+    let n = length s in
+    create n (lam i. (get w i, get s i))
+  in
+  let samples =
+    externalBatchedInference (unsafeCoerce model) deadlineTs maxBatches
+  in
+  samplesToDist (join (unsafeCoerce samples))
 
 let openFileDescriptor : String -> Int = lam file.
   externalOpenFileNonblocking file

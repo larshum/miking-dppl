@@ -6,7 +6,8 @@ type RtpplOptions = {
   debugCompileMExpr : Bool,
   outputPath : String,
   file : String,
-  particlesPerBatch : Int
+  particlesPerBatch : Int,
+  maxInferBatches : Int
 }
 
 let rtpplDefaultOptions = {
@@ -15,7 +16,8 @@ let rtpplDefaultOptions = {
   debugCompileMExpr = false,
   outputPath = "",
   file = "",
-  particlesPerBatch = 100
+  particlesPerBatch = 100,
+  maxInferBatches = 100
 }
 
 let optionsConfig = [
@@ -33,7 +35,10 @@ let optionsConfig = [
   , lam p. {p.options with outputPath = argToString p} ),
   ( [("--ppb", " ", "<n>")]
   , "Sets the number of particles to use in each inference batch"
-  , lam p. {p.options with particlesPerBatch = argToInt p} )
+  , lam p. {p.options with particlesPerBatch = argToInt p} ),
+  ( [("--max-infer-batches", " ", "<batches>")]
+  , "Sets the maximum number of batches to run for each inference"
+  , lam p. {p.options with maxInferBatches = argToInt p} )
 ]
 
 let printHelpMsgAndExit = lam.

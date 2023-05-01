@@ -454,18 +454,24 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
         ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
+    let maxBatchesExpr = TmConst {
+      val = CInt {val = env.options.maxInferBatches},
+      ty = _tyuk info, info = info
+    } in
     let distBind = TmLet {
       ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
       body = TmApp {
         lhs = TmApp {
           lhs = TmApp {
             lhs = TmApp {
-              lhs = _var info (getRuntimeIds ()).inferRunner,
-              rhs = _var info (nameNoSym "inferModel"),
-              ty = _tyuk info, info = info},
-            rhs = _var info (nameNoSym "distToSamples"), ty = _tyuk info, info = info},
-          rhs = _var info (nameNoSym "samplesToDist"), ty = _tyuk info, info = info},
-        rhs = compileRtpplExpr d, ty = _tyuk info, info = info},
+              lhs = TmApp {
+                lhs = _var info (getRuntimeIds ()).inferRunner,
+                rhs = _var info (nameNoSym "inferModel"),
+                ty = _tyuk info, info = info},
+              rhs = _var info (nameNoSym "distToSamples"), ty = _tyuk info, info = info},
+            rhs = _var info (nameNoSym "samplesToDist"), ty = _tyuk info, info = info},
+          rhs = compileRtpplExpr d, ty = _tyuk info, info = info},
+        rhs = maxBatchesExpr, ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
     bindall_ [inferModelBind, distToSamplesBind, samplesToDistBind, distBind]

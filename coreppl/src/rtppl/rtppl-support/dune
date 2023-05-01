@@ -6,4 +6,4 @@
   (names rt-stubs))
  (foreign_stubs
   (language cxx)
-  (names fifo-stubs)))
+  (names fifo-stubs infer-stubs)))
