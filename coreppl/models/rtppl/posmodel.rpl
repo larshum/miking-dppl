@@ -384,7 +384,7 @@ def positioning(period : Int) : Unit {
   }
 }
 
-main() {
+main {
   // Distance sensors
   sensor frontLeft : Float
   sensor frontRight : Float

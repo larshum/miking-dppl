@@ -46,12 +46,11 @@ lang RtpplPrettyPrint = RtpplAst
 
   sem pprintRtpplMain : RtpplMain -> String
   sem pprintRtpplMain =
-  | MainRtpplMain {params = params, ext = ext, tasks = tasks, connections = connections} ->
-    let paramsStr = pprintRtpplParams params in
+  | MainRtpplMain {ext = ext, tasks = tasks, connections = connections} ->
     let extStr = strJoin "\n" (map pprintRtpplExt ext) in
     let tasksStr = strJoin "\n" (map pprintRtpplTask tasks) in
     let connectionsStr = strJoin "\n" (map pprintRtpplConnection connections) in
-    join ["main(", paramsStr, ") {\n", tasksStr, "\n", connectionsStr, "\n}"]
+    join ["main {\n", tasksStr, "\n", connectionsStr, "\n}"]
 
   sem pprintRtpplExt : RtpplExt -> String
   sem pprintRtpplExt =

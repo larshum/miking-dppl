@@ -1185,10 +1185,9 @@ lang RtpplCompile =
   | t ->
     sfold_Expr_Expr identifiersInExpr acc t
 
-  -- TODO(larshum, 2023-04-11): How to handle the parameters passed to main?
   sem compileMain : CompileEnv -> RtpplMain -> CompileResult
   sem compileMain env =
-  | MainRtpplMain {params = [], tasks = tasks, connections = connections} ->
+  | MainRtpplMain {tasks = tasks, connections = connections} ->
     let emptyResult = { tasks = mapEmpty nameCmp, ports = [] } in
     foldl (compileTask env) emptyResult tasks
 
