@@ -62,7 +62,7 @@ end
 lang RuntimeDistEmpirical = RuntimeDistBase
   syn Dist a =
   | DistEmpirical {
-      weights : [Float],
+      cumulativeWeights : [Float],
       logWeights : [Float],
       samples : [a],
       degenerate : Bool,
@@ -108,13 +108,17 @@ lang RuntimeDistEmpirical = RuntimeDistBase
     let logWeights = map (lam lw. subf lw lse) logWeights in
     -- print "LOG-NORMALIZED: "; printLn (strJoin "," (map float2string logWeights));
 
-    -- Compute standard weights
-    let weights = map exp logWeights in
-    -- print "NORMALIZED: "; printLn (strJoin "," (map float2string weights));
+    -- Computes cumulative (non-log) weights
+    let f = lam acc. lam x.
+      let acc = addf acc (exp x) in
+      (acc, acc)
+    in
+    match mapAccumL f 0.0 logWeights with (_, cumulativeWeights) in
+    -- print "CUMULATIVE NORMALIZED: "; printLn (strJoin "," (map float2string cumulativeWeights));
 
     DistEmpirical {
-      weights = weights, logWeights = logWeights, degenerate = degenerate,
-      samples = samples, extra = extra
+      cumulativeWeights = cumulativeWeights, logWeights = logWeights,
+      degenerate = degenerate, samples = samples, extra = extra
     }
 
   sem empiricalSamples =
@@ -138,13 +142,12 @@ lang RuntimeDistEmpirical = RuntimeDistBase
 
   sem sample =
   | DistEmpirical t ->
-    -- TODO(dlunde,2022-10-19): Just taking exp directly could be numerically
-    -- unstable. We want sampling to be efficient, however, so appropriately
-    -- scaling the weights every time we want to sample the distribution is not
-    -- really an option. We should maybe even save the weights as
-    -- non-log-weights to not have to take the exponential of every weight all
-    -- the time.
-    let i: Int = externalCategoricalSample t.weights in
+    -- NOTE(larshum, 2023-05-02): Sample by choosing a value in range [0, 1)
+    -- and finding the index of the maximal cumulative weight which is less
+    -- than the chosen value. The sample at this index is returned.
+    let x = uniformSample () in
+    let cmp = lam y. if ltf (subf y x) 0.0 then negi 1 else 0 in
+    let i = lowerBoundBinarySearch cmp t.cumulativeWeights in
     unsafeCoerce (get t.samples i)
 
   sem logObserve =
