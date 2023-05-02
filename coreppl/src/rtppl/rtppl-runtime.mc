@@ -105,12 +105,15 @@ let sdelay : (() -> ()) -> (() -> ()) -> Int -> Int =
   overrun
 
 let rtpplInferRunner =
-  lam inferModel. lam distToSamples. lam samplesToDist. lam deadline.
+  lam inferModel. lam distToSamples. lam samplesToDist. lam distNormConst.
+  lam deadline.
   let t0 = getProcessCpuTime () in
   let deadlineTs = addTimespec t0 (nanosToTimespec deadline) in
   let model = lam.
     let d = inferModel () in
     match distToSamples d with (s, w) in
+    let nc = distNormConst d in
+    let w = map (addf nc) w in
     let n = length s in
     create n (lam i. (get w i, get s i))
   in

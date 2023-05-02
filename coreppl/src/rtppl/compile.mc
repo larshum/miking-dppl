@@ -459,21 +459,35 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
         ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
+    let distNormConstBind = TmLet {
+      ident = nameNoSym "distNormConst", tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmLam {
+        ident = nameNoSym "d", tyAnnot = _tyuk info, tyIdent = _tyuk info,
+        body = TmApp {
+          lhs = TmConst {val = CDistEmpiricalNormConst (), ty = _tyuk info, info = info},
+          rhs = _var info (nameNoSym "d"), ty = _tyuk info, info = info},
+        ty = _tyuk info, info = info},
+      inexpr = uunit_, ty = _tyuk info, info = info
+    } in
     let distBind = TmLet {
       ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
       body = TmApp {
         lhs = TmApp {
           lhs = TmApp {
             lhs = TmApp {
-              lhs = _var info (getRuntimeIds ()).inferRunner,
-              rhs = _var info (nameNoSym "inferModel"),
-              ty = _tyuk info, info = info},
-            rhs = _var info (nameNoSym "distToSamples"), ty = _tyuk info, info = info},
-          rhs = _var info (nameNoSym "samplesToDist"), ty = _tyuk info, info = info},
+              lhs = TmApp {
+                lhs = _var info (getRuntimeIds ()).inferRunner,
+                rhs = _var info (nameNoSym "inferModel"),
+                ty = _tyuk info, info = info},
+              rhs = _var info (nameNoSym "distToSamples"), ty = _tyuk info, info = info},
+            rhs = _var info (nameNoSym "samplesToDist"), ty = _tyuk info, info = info},
+          rhs = _var info (nameNoSym "distNormConst"), ty = _tyuk info, info = info},
         rhs = compileRtpplExpr t, ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
-    bindall_ [inferModelBind, distToSamplesBind, samplesToDistBind, distBind]
+    bindall_
+      [ inferModelBind, distToSamplesBind, samplesToDistBind
+      , distNormConstBind, distBind ]
   | InferRtpplStmt {id = {v = id}, model = model, info = info,
                     extra = InferFixedRtpplInferEnd {p = p}} ->
     TmLet {
