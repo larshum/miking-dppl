@@ -32,8 +32,10 @@ lang RtpplCompileBase =
     openFile : Name,
     closeFile : Name,
     readFloat : Name,
+    readDistFloat : Name,
     readDistFloatRecord : Name,
     writeFloat : Name,
+    writeDistFloat : Name,
     writeDistFloatRecord : Name,
     tsv : Name,
     inferRunner : Name,
@@ -82,8 +84,9 @@ lang RtpplCompileBase =
     else
       let strs = [
         "sdelay", "openFileDescriptor", "closeFileDescriptor",
-        "rtpplReadFloatPort", "rtpplReadDistFloatRecordPort",
-        "rtpplWriteFloatPort", "rtpplWriteDistFloatRecordPort", "tsv",
+        "rtpplReadFloatPort", "rtpplReadDistFloatPort",
+        "rtpplReadDistFloatRecordPort", "rtpplWriteFloatPort",
+        "rtpplWriteDistFloatPort", "rtpplWriteDistFloatRecordPort", "tsv",
         "rtpplInferRunner", "rtpplRuntimeInit"
       ] in
       let rt = readRuntime () in
@@ -91,9 +94,10 @@ lang RtpplCompileBase =
       with Some ids then
         let result =
           { sdelay = get ids 0, openFile = get ids 1, closeFile = get ids 2
-          , readFloat = get ids 3, readDistFloatRecord = get ids 4
-          , writeFloat = get ids 5, writeDistFloatRecord = get ids 6
-          , tsv = get ids 7, inferRunner = get ids 8, init = get ids 9 }
+          , readFloat = get ids 3, readDistFloat = get ids 4
+          , readDistFloatRecord = get ids 5, writeFloat = get ids 6
+          , writeDistFloat = get ids 7, writeDistFloatRecord = get ids 8
+          , tsv = get ids 9, inferRunner = get ids 10, init = get ids 11 }
         in
         modref rtIdRef (Some result);
         result
@@ -828,6 +832,16 @@ lang RtpplCompileGenerated = RtpplCompileType
     TmApp {
       lhs = _var info rtIds.readFloat, rhs = fdExpr,
       ty = _tyuk info, info = info }
+  | DistRtpplType {ty = FloatRtpplType _, info = info} ->
+    let transformExpr = encodingToDistribution info in
+    TmApp {
+      lhs = TmApp {
+        lhs = TmConst {val = CMap (), ty = _tyuk info, info = info},
+        rhs = transformExpr, ty = _tyuk info, info = info},
+      rhs = TmApp {
+        lhs = _var info rtIds.readDistFloat, rhs = fdExpr,
+        ty = _tyuk info, info = info},
+      ty = _tyuk info, info = info}
   | DistRtpplType {ty = RecordRtpplType {fields = fields}, info = info} ->
     if forAll isFloatField fields then
       let transformExpr = encodingToDistribution info in
@@ -860,6 +874,18 @@ lang RtpplCompileGenerated = RtpplCompileType
         lhs = _var info rtIds.writeFloat, rhs = fdExpr,
         ty = _tyuk info, info = info},
       rhs = msgsExpr, ty = _tyuk info, info = info}
+  | DistRtpplType {ty = FloatRtpplType _, info = info} ->
+    let transformExpr = distributionToEncoding info in
+    TmApp {
+      lhs = TmApp {
+        lhs = _var info rtIds.writeDistFloat, rhs = fdExpr,
+        ty = _tyuk info, info = info},
+      rhs = TmApp {
+        lhs = TmApp {
+          lhs = TmConst {val = CMap (), ty = _tyuk info, info = info},
+          rhs = transformExpr, ty = _tyuk info, info = info},
+        rhs = msgsExpr, ty = _tyuk info, info = info},
+      ty = _tyuk info, info = info}
   | DistRtpplType {ty = RecordRtpplType {fields = fields}, info = info} ->
     if forAll isFloatField fields then
       let transformExpr = distributionToEncoding info in

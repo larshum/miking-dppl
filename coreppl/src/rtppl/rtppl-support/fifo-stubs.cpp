@@ -153,6 +153,58 @@ payload write_float_payload(value tsv) {
   return p;
 }
 
+value read_dist_float_payload(const payload& p) {
+  int64_t nsamples = (p.size - sizeof(int64_t)) / (2 * sizeof(double));
+  char *ptr = p.data;
+  int64_t timestamp;
+  memcpy((void*)&timestamp, ptr, sizeof(int64_t));
+  ptr += sizeof(int64_t);
+  value ts = to_timespec_value(timestamp);
+  value dist_samples = caml_alloc(nsamples, 0);
+  for (size_t i = 0; i < nsamples; i++) {
+    double weight;
+    memcpy((void*)&weight, ptr, sizeof(double));
+    value w = caml_copy_double(weight);
+    ptr += sizeof(double);
+    double sample;
+    memcpy((void*)&sample, ptr, sizeof(double));
+    value s = caml_copy_double(sample);
+    ptr += sizeof(double);
+    value entry = caml_alloc(2, 0);
+    Store_field(entry, 0, w);
+    Store_field(entry, 1, s);
+    Store_field(dist_samples, i, entry);
+  }
+  value tsv = caml_alloc(2, 0);
+  Store_field(tsv, 0, ts);
+  Store_field(tsv, 1, dist_samples);
+  return tsv;
+}
+
+payload write_dist_float_payload(value tsv) {
+  value ts = Field(tsv, 0);
+  value d = Field(tsv, 1);
+  value samples = Field(d, 0);
+  value log_weights = Field(d, 1);
+  int64_t nsamples = Wosize_val(samples);
+  payload p;
+  p.size = sizeof(int64_t) + 2 * nsamples * sizeof(double);
+  p.data = (char*)malloc(p.size);
+  char *ptr = p.data;
+  int64_t timestamp = timespec_value_to_int64(ts);
+  memcpy(ptr, (void*)&timestamp, sizeof(int64_t));
+  ptr += sizeof(int64_t);
+  for (size_t i = 0; i < nsamples; i++) {
+    double tmp = Double_field(log_weights, i);
+    memcpy(ptr, (void*)&tmp, sizeof(double));
+    ptr += sizeof(double);
+    tmp = Double_field(samples, i);
+    memcpy(ptr, (void*)&tmp, sizeof(double));
+    ptr += sizeof(double);
+  }
+  return p;
+}
+
 value read_dist_float_record_payload(const payload& p, int64_t nfields) {
   int64_t nsamples = (p.size - sizeof(int64_t)) / ((nfields + 1) * sizeof(double));
   char *ptr = p.data;
@@ -251,6 +303,24 @@ extern "C" {
   void write_float_named_pipe_stub(value fd, value tsv) {
     CAMLparam2(fd, tsv);
     payload p = write_float_payload(tsv);
+    write_message(fd, p);
+    free(p.data);
+    CAMLreturn0;
+  }
+
+  value read_dist_float_named_pipe_stub(value fd) {
+    CAMLparam1(fd);
+    CAMLlocal1(out);
+    std::vector<payload> input_seq = read_messages(fd);
+    for (size_t i = 0; i < input_seq.size(); i++) {
+      Store_field(out, i, read_dist_float_payload(input_seq[i]));
+    }
+    CAMLreturn(out);
+  }
+
+  void write_dist_float_named_pipe_stub(value fd, value tsv) {
+    CAMLparam2(fd, tsv);
+    payload p = write_dist_float_payload(tsv);
     write_message(fd, p);
     free(p.data);
     CAMLreturn0;

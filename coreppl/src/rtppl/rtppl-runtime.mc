@@ -127,6 +127,9 @@ let closeFileDescriptor : Int -> () = lam fd.
 let rtpplReadFloatPort = lam fd.
   externalReadFloatPipe fd
 
+let rtpplReadDistFloatPort = lam fd.
+  externalReadDistFloatPipe fd
+
 let rtpplReadDistFloatRecordPort = lam fd. lam nfields.
   externalReadDistFloatRecordPipe fd nfields
 
@@ -136,6 +139,10 @@ let rtpplWriteFloatPort =
   -- every time it is called, which may be very expensive. Therefore, we should
   -- open them at startup and then store them until shutdown.
   iter (lam msg. externalWriteFloatPipe fd msg) msgs
+
+let rtpplWriteDistFloatPort =
+  lam fd. lam msgs.
+  iter (lam msg. externalWriteDistFloatPipe fd msg) msgs
 
 let rtpplWriteDistFloatRecordPort =
   lam fd. lam nfields. lam msgs.
