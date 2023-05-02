@@ -305,7 +305,7 @@ def initialPosition(m : RoomMap) : Dist(State) {
       } else {}
     }
   }
-  infer d <- initialPositionModel(blocks) deadline 900ms
+  infer d <- initialPositionModel(blocks) particles 10000
   return d
 }
 
@@ -379,7 +379,7 @@ def positioning(period : Int) : Unit {
     read speedRight to wheelObs.speedRight
     read steeringAngle to wheelObs.steeringAngle
 
-    infer d <- positionModel(m, d, distObs, wheelObs, period) deadline 900ms
+    infer d <- positionModel(m, d, distObs, wheelObs, period) budget 900ms
     write d to posDist
   }
 }

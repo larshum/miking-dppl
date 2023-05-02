@@ -105,8 +105,9 @@ let sdelay : (() -> ()) -> (() -> ()) -> Int -> Int =
   overrun
 
 let rtpplInferRunner =
-  lam inferModel. lam distToSamples. lam samplesToDist. lam deadline. lam maxBatches.
-  let deadlineTs = addTimespec (deref monoLogicalTime) (nanosToTimespec deadline) in
+  lam inferModel. lam distToSamples. lam samplesToDist. lam deadline.
+  let t0 = getProcessCpuTime () in
+  let deadlineTs = addTimespec t0 (nanosToTimespec deadline) in
   let model = lam.
     let d = inferModel () in
     match distToSamples d with (s, w) in
@@ -114,7 +115,7 @@ let rtpplInferRunner =
     create n (lam i. (get w i, get s i))
   in
   let samples =
-    externalBatchedInference (unsafeCoerce model) deadlineTs maxBatches
+    externalBatchedInference (unsafeCoerce model) deadlineTs
   in
   samplesToDist (join (unsafeCoerce samples))
 

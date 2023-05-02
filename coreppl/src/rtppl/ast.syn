@@ -14,6 +14,7 @@ type RtpplExprNoIdent
 type RtpplType {grouping = "(" ")", }
 type RtpplTypeNoIdent
 type RtpplConst
+type RtpplInferEnd
 
 type RtpplPort
 
@@ -91,7 +92,7 @@ prod Output : RtpplPort = "output" id:LIdent ":" ty:RtpplType
 prod Binding : RtpplStmt = "var" id:LName ":" ty:RtpplType "=" e:RtpplExpr
 prod Observe : RtpplStmt = "observe" e:RtpplExpr "~" d:RtpplExpr
 prod Assume : RtpplStmt = "assume" id:LName "~" d:RtpplExpr
-prod Infer : RtpplStmt = "infer" id:LName "<-" model:RtpplExpr "deadline" d:RtpplExpr
+prod Infer : RtpplStmt = "infer" id:LName "<-" model:RtpplExpr extra:RtpplInferEnd
 prod Degenerate : RtpplStmt = "degenerate"
 prod Resample : RtpplStmt = "resample"
 prod Read : RtpplStmt = "read" port:LIdent "to" (dst:LName ("." proj:LIdent)?)
@@ -100,6 +101,9 @@ prod Sdelay : RtpplStmt = "sdelay" e:RtpplExpr
 prod Condition : RtpplStmt =
   "cond" id:LName? "if" cond:RtpplExpr "{" thn:RtpplStmt* "}" "else" "{" els:RtpplStmt* "}"
 prod LoopPlusStmt : RtpplStmt = "loop" id:LName? loop:RtpplLoopStmt
+
+prod InferBudget : RtpplInferEnd = "budget" t:RtpplExpr
+prod InferFixed : RtpplInferEnd = "particles" p:RtpplExpr
 
 -- NOTE(larshum, 2023-03-06): Grammar workarounds to make it LL(1).
 prod ForIn : RtpplLoopStmt = "for" id:LName "in" e:RtpplExpr "{" body:RtpplStmt* "}"

@@ -9,6 +9,7 @@ type opaque
 
 external get_monotonic_time : unit -> timespec = "clock_monotonic_time_stub"
 external get_wall_clock_time : unit -> timespec = "clock_wall_time_stub"
+external get_process_cpu_time : unit -> timespec = "clock_process_cpu_time_stub"
 external clock_nanosleep : timespec -> unit = "clock_nanosleep_stub"
 
 external set_priority : int -> int = "set_priority_stub"
@@ -37,37 +38,23 @@ external rtppl_batched_inference_stub
 
 exception Rtppl_batched_infer_timeout
 
-let rtppl_batched_inference infer_model deadline maxBatches =
-  let is_running = Atomic.make false in
-  let f _ =
-    if Atomic.get is_running then
-      raise Rtppl_batched_infer_timeout
-    else
-      ()
-  in
+let rtppl_batched_inference infer_model deadline =
+  let f _ = raise Rtppl_batched_infer_timeout in
   Sys.set_signal Sys.sigusr1 (Sys.Signal_handle f);
-  (* NOTE(larshum, 2023-05-01): Sets an upper bound on the number of
-     batches. This prevents an intial estimation from producing an
-     unreasonable amount of samples, as this would slow down later
-     estimations sampling from the original distribution. *)
-  let n = maxBatches in
   let model _ =
     let acc = Atomic.make [] in
-    let rec work i =
-      if i == n then () else
+    let rec work _ =
       let upd = infer_model () :: Atomic.get acc in
       Atomic.set acc upd;
-      work (i+1)
+      work ()
     in
     (* NOTE(larshum, 2023-05-01): We have to catch all exceptions rather than
        just the exception we raise because the exception we raise may be
        captured by called code (and hopefully re-thrown). *)
     (try
-      Atomic.set is_running true;
-      work 0;
-      Atomic.set is_running false
+      work ()
     with _ ->
-      Atomic.set is_running false);
+      ());
     Atomic.get acc
   in
   rtppl_batched_inference_stub model deadline

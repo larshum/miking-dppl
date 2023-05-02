@@ -26,6 +26,17 @@ value clock_wall_time_stub() {
   CAMLreturn(out);
 }
 
+value clock_process_cpu_time_stub() {
+  CAMLparam0();
+  CAMLlocal1(out);
+  struct timespec ts;
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+  out = caml_alloc(2, 0);
+  Store_field(out, 0, Val_int(ts.tv_sec));
+  Store_field(out, 1, Val_int(ts.tv_nsec));
+  CAMLreturn(out);
+}
+
 void clock_nanosleep_stub(value t) {
   CAMLparam1(t);
   struct timespec ts;

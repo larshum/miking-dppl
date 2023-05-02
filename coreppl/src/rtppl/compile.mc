@@ -424,7 +424,8 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
       ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
       body = TmAssume { dist = compileRtpplExpr d, ty = _tyuk info, info = info },
       inexpr = uunit_, ty = _tyuk info, info = info }
-  | InferRtpplStmt {id = {v = id}, model = model, d = d, info = info} ->
+  | InferRtpplStmt {id = {v = id}, model = model, info = info,
+                    extra = InferBudgetRtpplInferEnd {t = t}} ->
     let inferModelBind = TmLet {
       ident = nameNoSym "inferModel", tyAnnot = _tyuk info, tyBody = _tyuk info,
       body = TmLam {
@@ -458,27 +459,32 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
         ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
-    let maxBatchesExpr = TmConst {
-      val = CInt {val = env.options.maxInferBatches},
-      ty = _tyuk info, info = info
-    } in
     let distBind = TmLet {
       ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
       body = TmApp {
         lhs = TmApp {
           lhs = TmApp {
             lhs = TmApp {
-              lhs = TmApp {
-                lhs = _var info (getRuntimeIds ()).inferRunner,
-                rhs = _var info (nameNoSym "inferModel"),
-                ty = _tyuk info, info = info},
-              rhs = _var info (nameNoSym "distToSamples"), ty = _tyuk info, info = info},
-            rhs = _var info (nameNoSym "samplesToDist"), ty = _tyuk info, info = info},
-          rhs = compileRtpplExpr d, ty = _tyuk info, info = info},
-        rhs = maxBatchesExpr, ty = _tyuk info, info = info},
+              lhs = _var info (getRuntimeIds ()).inferRunner,
+              rhs = _var info (nameNoSym "inferModel"),
+              ty = _tyuk info, info = info},
+            rhs = _var info (nameNoSym "distToSamples"), ty = _tyuk info, info = info},
+          rhs = _var info (nameNoSym "samplesToDist"), ty = _tyuk info, info = info},
+        rhs = compileRtpplExpr t, ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
     bindall_ [inferModelBind, distToSamplesBind, samplesToDistBind, distBind]
+  | InferRtpplStmt {id = {v = id}, model = model, info = info,
+                    extra = InferFixedRtpplInferEnd {p = p}} ->
+    TmLet {
+      ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmInfer {
+        method = BPF {particles = compileRtpplExpr p},
+        model = TmLam {
+          ident = nameNoSym "", tyAnnot = _tyuk info, tyIdent = _tyuk info,
+          body = compileRtpplExpr model, ty = _tyuk info, info = info},
+        ty = _tyuk info, info = info},
+      inexpr = uunit_, ty = _tyuk info, info = info}
   | DegenerateRtpplStmt {info = info} ->
     let neginf = TmApp {
       lhs = TmApp {

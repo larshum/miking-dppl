@@ -22,7 +22,7 @@ extern "C" {
     if (Is_block(Field(deadline, 0))) {
       ts.tv_sec = Long_val(Field(Field(deadline, 0), 0));
     }
-    clock_nanosleep_abstime(&ts);
+    clock_nanosleep_cputime(&ts);
     kill(getpid(), SIGUSR1);
   }
 
