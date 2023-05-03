@@ -142,13 +142,22 @@ lang RuntimeDistEmpirical = RuntimeDistBase
 
   sem sample =
   | DistEmpirical t ->
-    -- NOTE(larshum, 2023-05-02): Sample by choosing a value in range [0, 1)
+    -- NOTE(larshum, 2023-05-03): Sample by choosing a value in range [0, y)
     -- and finding the index of the maximal cumulative weight which is less
-    -- than the chosen value. The sample at this index is returned.
-    let x = uniformSample () in
+    -- than the chosen value. The sample at this index is returned. Note that
+    -- we use the final cumulative weight rather than 1 for y, to prevent
+    -- rounding errors from skewing the probability of the last sample.
+    let x = uniformContinuousSample 0.0 (last t.cumulativeWeights) in
+
+    -- NOTE(larshum, 2023-05-03): The sampled value 'x' cannot be greater than
+    -- the last element of the sequence of cumulative weights, so we should
+    -- always be able to find an index for which the comparison function
+    -- returns a non-negative number.
     let cmp = lam y. if ltf (subf y x) 0.0 then negi 1 else 0 in
-    let i = lowerBoundBinarySearch cmp t.cumulativeWeights in
-    unsafeCoerce (get t.samples i)
+    match lowerBoundBinarySearch cmp t.cumulativeWeights with Some idx then
+      unsafeCoerce (get t.samples idx)
+    else
+      error "Sampling from empirical distribution failed"
 
   sem logObserve =
   -- TODO(dlunde,2022-10-18): Implement this?
