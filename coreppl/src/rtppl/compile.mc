@@ -700,6 +700,10 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
     _constructApp info (CMulf ()) l r
   | DivRtpplExpr {left = l, right = r, info = info} ->
     _constructApp info (CDivf ()) l r
+  | EqRtpplExpr {left = l, right = r, info = info} ->
+    _constructApp info (CEqf ()) l r
+  | NeqRtpplExpr {left = l, right = r, info = info} ->
+    _constructApp info (CNeqf ()) l r
   | LtRtpplExpr {left = l, right = r, info = info} ->
     _constructApp info (CLtf ()) l r
   | GtRtpplExpr {left = l, right = r, info = info} ->
@@ -959,8 +963,9 @@ lang RtpplCompileGenerated = RtpplCompileType
       (stringToSid port.id, openFileExpr)
     in
     let closeFileDescExpr = lam port.
+      let bindId = nameNoSym (concat "close_" port.id) in
       TmLet {
-        ident = nameNoSym "", tyAnnot = _tyuk info, tyBody = _tyuk info,
+        ident = bindId, tyAnnot = _tyuk info, tyBody = _tyuk info,
         body = TmApp {
           lhs = _var info rtIds.closeFile,
           rhs = _proj info (_var info fileDescriptorsId) port.id,

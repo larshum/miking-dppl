@@ -55,6 +55,8 @@ let rtppl_batched_inference infer_model deadline =
       work ()
     with _ ->
       ());
-    Atomic.get acc
+    match Atomic.get acc with
+    | [] -> failwith "Batched inference failed to produce any batches on time"
+    | result -> result
   in
   rtppl_batched_inference_stub model deadline

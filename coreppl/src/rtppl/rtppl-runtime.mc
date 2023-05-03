@@ -157,7 +157,7 @@ let rtpplRuntimeInit : (() -> ()) -> (() -> ()) -> (() -> Unknown) -> () =
 
   -- Sets up a signal handler on SIGINT which calls code for closing all file
   -- descriptors before terminating.
-  setSignalHandler 2 (lam. closeFileDescriptors (); exit 0);
+  setSigintHandler (lam. closeFileDescriptors (); exit 0);
 
   -- Initialize the logical time to the current time of the physical clock
   modref monoLogicalTime (getMonotonicTime ());
@@ -187,6 +187,9 @@ let intToFloat = int2float
 
 let push : [Unknown] -> Unknown -> [Unknown] = lam s. lam elem.
   snoc s elem
+
+let concat : [Unknown] -> [Unknown] -> [Unknown] = lam l. lam r.
+  concat l r
 
 let sort : (Unknown -> Unknown -> Int) -> [Unknown] -> [Unknown] =
   lam cmp. lam s.

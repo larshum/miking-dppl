@@ -127,19 +127,6 @@ int64_t timespec_value_to_int64(value ts) {
   return sec * (int64_t)1e9 + nsec;
 }
 
-value read_float_payload(const payload& p) {
-  int64_t ts;
-  memcpy(&ts, (char*)p.data, sizeof(int64_t));
-  value timespec = to_timespec_value(ts);
-  value tsv = caml_alloc(2, 0);
-  Store_field(tsv, 0, timespec);
-  double val;
-  memcpy(&val, (char*)p.data + sizeof(int64_t), sizeof(double));
-  Store_field(tsv, 1, caml_copy_double(val));
-  free(p.data);
-  return tsv;
-}
-
 payload write_float_payload(value tsv) {
   payload p;
   p.size = sizeof(int64_t) + sizeof(double);
@@ -151,34 +138,6 @@ payload write_float_payload(value tsv) {
   double data = Double_val(v);
   memcpy(p.data + sizeof(int64_t), (void*)&data, sizeof(double));
   return p;
-}
-
-value read_dist_float_payload(const payload& p) {
-  int64_t nsamples = (p.size - sizeof(int64_t)) / (2 * sizeof(double));
-  char *ptr = p.data;
-  int64_t timestamp;
-  memcpy((void*)&timestamp, ptr, sizeof(int64_t));
-  ptr += sizeof(int64_t);
-  value ts = to_timespec_value(timestamp);
-  value dist_samples = caml_alloc(nsamples, 0);
-  for (size_t i = 0; i < nsamples; i++) {
-    double weight;
-    memcpy((void*)&weight, ptr, sizeof(double));
-    value w = caml_copy_double(weight);
-    ptr += sizeof(double);
-    double sample;
-    memcpy((void*)&sample, ptr, sizeof(double));
-    value s = caml_copy_double(sample);
-    ptr += sizeof(double);
-    value entry = caml_alloc(2, 0);
-    Store_field(entry, 0, w);
-    Store_field(entry, 1, s);
-    Store_field(dist_samples, i, entry);
-  }
-  value tsv = caml_alloc(2, 0);
-  Store_field(tsv, 0, ts);
-  Store_field(tsv, 1, dist_samples);
-  return tsv;
 }
 
 payload write_dist_float_payload(value tsv) {
@@ -203,37 +162,6 @@ payload write_dist_float_payload(value tsv) {
     ptr += sizeof(double);
   }
   return p;
-}
-
-value read_dist_float_record_payload(const payload& p, int64_t nfields) {
-  int64_t nsamples = (p.size - sizeof(int64_t)) / ((nfields + 1) * sizeof(double));
-  char *ptr = p.data;
-  int64_t timestamp;
-  memcpy((void*)&timestamp, ptr, sizeof(int64_t));
-  ptr += sizeof(int64_t);
-  value ts = to_timespec_value(timestamp);
-  value dist_samples = caml_alloc(nsamples, 0);
-  for (size_t i = 0; i < nsamples; i++) {
-    double weight;
-    memcpy((void*)&weight, ptr, sizeof(double));
-    value w = caml_copy_double(weight);
-    ptr += sizeof(double);
-    value s = caml_alloc(nfields, 0);
-    for (size_t j = 0; j < nfields; j++) {
-      double tmp;
-      memcpy((void*)&tmp, ptr, sizeof(double));
-      Store_field(s, j, caml_copy_double(tmp));
-      ptr += sizeof(double);
-    }
-    value sample = caml_alloc(2, 0);
-    Store_field(sample, 0, w);
-    Store_field(sample, 1, s);
-    Store_field(dist_samples, i, sample);
-  }
-  value tsv = caml_alloc(2, 0);
-  Store_field(tsv, 0, ts);
-  Store_field(tsv, 1, dist_samples);
-  return tsv;
 }
 
 payload write_dist_float_record_payload(value tsv, value nfields_val) {
@@ -291,11 +219,20 @@ extern "C" {
 
   value read_float_named_pipe_stub(value fd) {
     CAMLparam1(fd);
-    CAMLlocal1(out);
+    CAMLlocal2(out, tsv);
     std::vector<payload> input_seq = read_messages(fd);
     out = caml_alloc(input_seq.size(), 0);
     for (size_t i = 0; i < input_seq.size(); i++) {
-      Store_field(out, i, read_float_payload(input_seq[i]));
+      const payload &p = input_seq[i];
+      int64_t ts;
+      memcpy(&ts, (char*)p.data, sizeof(int64_t));
+      value tsv = caml_alloc(2, 0);
+      Store_field(tsv, 0, to_timespec_value(ts));
+      double val;
+      memcpy(&val, (char*)p.data + sizeof(int64_t), sizeof(double));
+      Store_field(tsv, 1, caml_copy_double(val));
+      free(p.data);
+      Store_field(out, i, tsv);
     }
     CAMLreturn(out);
   }
@@ -310,10 +247,33 @@ extern "C" {
 
   value read_dist_float_named_pipe_stub(value fd) {
     CAMLparam1(fd);
-    CAMLlocal1(out);
+    CAMLlocal4(out, dist_samples, entry, tsv);
     std::vector<payload> input_seq = read_messages(fd);
+    out = caml_alloc(input_seq.size(), 0);
     for (size_t i = 0; i < input_seq.size(); i++) {
-      Store_field(out, i, read_dist_float_payload(input_seq[i]));
+      const payload &p = input_seq[i];
+      int64_t nsamples = (p.size - sizeof(int64_t)) / (2 * sizeof(double));
+      char *ptr = p.data;
+      int64_t timestamp;
+      memcpy((void*)&timestamp, ptr, sizeof(int64_t));
+      ptr += sizeof(int64_t);
+      tsv = caml_alloc(2, 0);
+      Store_field(tsv, 0, to_timespec_value(timestamp));
+      dist_samples = caml_alloc(nsamples, 0);
+      for (size_t i = 0; i < nsamples; i++) {
+        entry = caml_alloc(2, 0);
+        double weight;
+        memcpy((void*)&weight, ptr, sizeof(double));
+        Store_field(entry, 0, caml_copy_double(weight));
+        ptr += sizeof(double);
+        double sample;
+        memcpy((void*)&sample, ptr, sizeof(double));
+        Store_field(entry, 1, caml_copy_double(sample));
+        ptr += sizeof(double);
+        Store_field(dist_samples, i, entry);
+      }
+      Store_field(tsv, 1, dist_samples);
+      Store_field(out, i, tsv);
     }
     CAMLreturn(out);
   }
@@ -328,12 +288,39 @@ extern "C" {
 
   value read_dist_float_record_named_pipe_stub(value fd, value nfields_val) {
     CAMLparam2(fd, nfields_val);
-    CAMLlocal1(out);
+    CAMLlocal4(out, dist_samples, sample, tsv);
     std::vector<payload> input_seq = read_messages(fd);
     int64_t nfields = Long_val(nfields_val);
     out = caml_alloc(input_seq.size(), 0);
     for (size_t i = 0; i < input_seq.size(); i++) {
-      Store_field(out, i, read_dist_float_record_payload(input_seq[i], nfields));
+      const payload &p = input_seq[i];
+      int64_t nsamples = (p.size - sizeof(int64_t)) / ((nfields + 1) * sizeof(double));
+      char *ptr = p.data;
+      int64_t timestamp;
+      memcpy((void*)&timestamp, ptr, sizeof(int64_t));
+      ptr += sizeof(int64_t);
+      value tsv = caml_alloc(2, 0);
+      Store_field(tsv, 0, to_timespec_value(timestamp));
+      dist_samples = caml_alloc(nsamples, 0);
+      for (size_t i = 0; i < nsamples; i++) {
+        double weight;
+        memcpy((void*)&weight, ptr, sizeof(double));
+        value w = caml_copy_double(weight);
+        ptr += sizeof(double);
+        value s = caml_alloc(nfields, 0);
+        for (size_t j = 0; j < nfields; j++) {
+          double tmp;
+          memcpy((void*)&tmp, ptr, sizeof(double));
+          Store_field(s, j, caml_copy_double(tmp));
+          ptr += sizeof(double);
+        }
+        sample = caml_alloc(2, 0);
+        Store_field(sample, 0, w);
+        Store_field(sample, 1, s);
+        Store_field(dist_samples, i, sample);
+      }
+      Store_field(tsv, 1, dist_samples);
+      Store_field(out, i, tsv);
     }
     CAMLreturn(out);
   }
