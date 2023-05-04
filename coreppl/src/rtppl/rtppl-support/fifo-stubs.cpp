@@ -185,7 +185,11 @@ payload write_dist_float_record_payload(value tsv, value nfields_val) {
     ptr += sizeof(double);
     value rec = Field(samples, i);
     for (size_t j = 0; j < nfields; j++) {
-      tmp = Double_val(Field(rec, j));
+      if (Tag_val(rec) == Double_array_tag) {
+        tmp = Double_field(rec, j);
+      } else {
+        tmp = Double_val(Field(rec, j));
+      }
       memcpy(ptr, (void*)&tmp, sizeof(double));
       ptr += sizeof(double);
     }
@@ -260,7 +264,7 @@ extern "C" {
       tsv = caml_alloc(2, 0);
       Store_field(tsv, 0, to_timespec_value(timestamp));
       dist_samples = caml_alloc(nsamples, 0);
-      for (size_t i = 0; i < nsamples; i++) {
+      for (size_t j = 0; j < nsamples; j++) {
         entry = caml_alloc(2, 0);
         double weight;
         memcpy((void*)&weight, ptr, sizeof(double));
@@ -270,7 +274,7 @@ extern "C" {
         memcpy((void*)&sample, ptr, sizeof(double));
         Store_field(entry, 1, caml_copy_double(sample));
         ptr += sizeof(double);
-        Store_field(dist_samples, i, entry);
+        Store_field(dist_samples, j, entry);
       }
       Store_field(tsv, 1, dist_samples);
       Store_field(out, i, tsv);
@@ -299,25 +303,24 @@ extern "C" {
       int64_t timestamp;
       memcpy((void*)&timestamp, ptr, sizeof(int64_t));
       ptr += sizeof(int64_t);
-      value tsv = caml_alloc(2, 0);
+      tsv = caml_alloc(2, 0);
       Store_field(tsv, 0, to_timespec_value(timestamp));
       dist_samples = caml_alloc(nsamples, 0);
-      for (size_t i = 0; i < nsamples; i++) {
+      for (size_t j = 0; j < nsamples; j++) {
+        sample = caml_alloc(2, 0);
         double weight;
         memcpy((void*)&weight, ptr, sizeof(double));
-        value w = caml_copy_double(weight);
+        Store_field(sample, 0, caml_copy_double(weight));
         ptr += sizeof(double);
         value s = caml_alloc(nfields, 0);
-        for (size_t j = 0; j < nfields; j++) {
+        for (size_t k = 0; k < nfields; k++) {
           double tmp;
           memcpy((void*)&tmp, ptr, sizeof(double));
-          Store_field(s, j, caml_copy_double(tmp));
+          Store_field(s, k, caml_copy_double(tmp));
           ptr += sizeof(double);
         }
-        sample = caml_alloc(2, 0);
-        Store_field(sample, 0, w);
         Store_field(sample, 1, s);
-        Store_field(dist_samples, i, sample);
+        Store_field(dist_samples, j, sample);
       }
       Store_field(tsv, 1, dist_samples);
       Store_field(out, i, tsv);
