@@ -4,11 +4,13 @@ type RoomMap = {
 
 type Coordinate = {row : Int, col : Int}
 
-type Pos = { x : Float, y : Float, direction : Float }
+type Pos = { x : Float, y : Float, direction : Float, speed : Float }
 
 const roomBlockWidth : Float = 0.1
 const maxSpeed : Float = 0.5
 const wheelCircumference : Float = 0.35
+const ultrasonicMaxRange : Float = 4.0
+const tofMaxRange : Float = 2.0
 
 def readRoomMap() : RoomMap {
   var data : [[Bool]] = readRoomMapRuntimeHelper()
@@ -58,7 +60,7 @@ def absInt(x : Int) : Int {
 // If the timestamp is too close to the logically local time, we use a
 // pre-determined constant instead.
 def timeRelativeSigma(ts : Int) : Float {
-  var min : Float = 0.1
+  var min : Float = 0.01
   var x : Float = intToFloat(absInt(ts)) / intToFloat(1s)
   cond x if x < min {
     x = min
@@ -71,11 +73,17 @@ def timeRelativeSigma(ts : Int) : Float {
 // estimations, as the current speed of the car does not depend much on the
 // speed during our previous estimation. (it might be a good idea to include
 // that as well)
-def speedModel(inputs : [TSV(Float)]) : Float {
-  assume v ~ Uniform(0.0 - maxSpeed, maxSpeed)
-  loop for tsv in inputs {
+def speedModel(prior : Dist(Float), observations : [TSV(Float)]) : Float {
+  // Start from our earlier estimation of the speed (in meters per second).
+  assume vprev ~ prior
+
+  // Our new belief of the speed is normally distributed around our old belief.
+  // TODO: choose sigma based on the max acceleration of the car.
+  assume v ~ Gaussian(vprev, 0.1)
+
+  loop for tsv in observations {
     var ts : Int = timestamp(tsv)
-    var sigma : Float = timeRelativeSigma(timestamp(tsv))
+    var sigma : Float = timeRelativeSigma(timestamp(tsv)) / 5.0
     var rpm : Float = value(tsv)
     var mps : Float = rpm * wheelCircumference / 60.0
     observe mps ~ Gaussian(v, sigma)
@@ -91,62 +99,54 @@ def speedEst(period : Int) : Unit {
   input lspeed : Float
   input rspeed : Float
   output speed : Dist(Float)
-  loop {
+  var d : Dist(Float) = Uniform(0.0-0.5, 0.5)
+  loop d {
     sdelay period
     read lspeed to lin
     read rspeed to rin
-    var inputs : [TSV(Float)] = concat(lin, rin)
-    infer d <- speedModel(inputs) particles 1000
+    var obs : [TSV(Float)] = concat(lin, rin)
+    infer d <- speedModel(d, obs) particles 1000
     write d to speed
   }
 }
 
 // Estimates the "true" distance between the car and an obstacle given
 // observations from one or multiple sensors placed at a certain direction.
-//
-// TODO: ensure that this model takes the offset of the sensors into account
-// when estimating the distance - we want to estimate the distance from the
-// front of the car to the wall, not from the center of the car to the wall.
 def distanceModel(prior : Dist(Float), dists : [TSV(Float)],
-                  speeds : [TSV(Dist(Float))], maxSensorDistance : Float) : Float {
+                  maxSensorRange : Float) : Float {
   // We sample from the prior to get the distance estimate from our previous
   // iteration.
   assume dprev ~ prior
 
-  // Add uncertainty in the new distance based on our speed estimations. When
-  // the car is stationary, the distance should not change, while if the car is
-  // moving fast the model assumes it is more likely to change than if it is
-  // moving slower.
-  var dist : Float = dprev
-  loop dist for tsv in speeds {
-    assume v ~ value(tsv)
-    var sigma : Float = v * timeRelativeSigma(timestamp(tsv))
-    assume dist ~ Gaussian(dist, sigma)
-  }
+  // We are uncertain about the new distance, but we assume it is related to
+  // our previous estimate through a normal distribution.
+  assume d ~ Gaussian(dprev, 1.0)
 
   loop for tsv in dists {
     var sigma : Float = timeRelativeSigma(timestamp(tsv))
     var obsDist : Float = value(tsv)
-    cond if not(obsDist > maxSensorDistance) {
-      cond if dist > maxSensorDistance {
+    // NOTE: The following approach assumes all observations provided by the
+    // distance sensors are correct and relatively exact. This is true for the
+    // simulator, but not for the car (in particular the ultrasonic sensors).
+    cond if obsDist > maxSensorRange {
+      cond if not(d > maxSensorRange) {
         degenerate
-      } else {
-        observe obsDist ~ Gaussian(dist, sigma)
-      }
-    } else {}
+      } else {}
+    } else {
+      observe obsDist ~ Gaussian(d, sigma)
+    }
   }
 
-  cond if dist < 0.0 || dist > 10.0 {
+  cond if d < 0.0 || d > 10.0 {
     degenerate
   } else {}
   resample
-  return dist
+  return d
 }
 
 def ultrasonicDistance(period : Int) : Unit {
   input ldist : Float
   input rdist : Float
-  input speed : Dist(Float)
   output dist : Dist(Float)
   var d : Dist(Float) = Uniform(0.0, 10.0)
   loop d {
@@ -154,36 +154,38 @@ def ultrasonicDistance(period : Int) : Unit {
     read ldist to lin
     read rdist to rin
     var dists : [TSV(Float)] = concat(lin, rin)
-    read speed to speeds
-    infer d <- distanceModel(d, dists, speeds, 2.0) particles 1000
+    infer d <- distanceModel(d, dists, ultrasonicMaxRange) particles 1000
     write d to dist
   }
 }
 
 def tofDistance(period : Int) : Unit {
   input distIn : Float
-  input speed : Dist(Float)
   output dist : Dist(Float)
   var d : Dist(Float) = Uniform(0.0, 10.0)
   loop d {
     sdelay period
     read distIn to tsvs
-    read speed to speeds
-    infer d <- distanceModel(d, tsvs, speeds, 4.0) particles 1000
+    infer d <- distanceModel(d, tsvs, tofMaxRange) particles 1000
     write d to dist
   }
 }
 
+// We choose the initial position by choosing a random block of the map,
+// and then sampling coordinates within the block. We assume that the initial
+// direction of the car relative to the map is known, and that the car is
+// stationary when the model starts running.
 def initialPositionModel(blocks : [Coordinate]) : Pos {
   var c : Coordinate = randElemExn(blocks)
   var x : Float = intToFloat(c.col) * roomBlockWidth
   var y : Float = intToFloat(c.row) * roomBlockWidth
   assume xOfs ~ Uniform(0.0, roomBlockWidth)
   assume yOfs ~ Uniform(0.0, roomBlockWidth)
-  assume d ~ Uniform(0.0, 2.0 * pi)
-  return { x = x + xOfs, y = y + yOfs, direction = d }
+  return { x = x + xOfs, y = y + yOfs, direction = pi, speed = 0.0 }
 }
 
+// TODO: Take the sensor offsets into account when estimating the distance.
+// The position denotes our belief of the center of the car.
 def estimateDistance(m : RoomMap, pos : Pos) : Float {
   var eps : Float = 0.05
   var acc : {d : Float, p : Pos} = {d = 0.0, p = pos}
@@ -218,38 +220,52 @@ def estimateDistanceSideRight(m : RoomMap, p : Pos) : Float {
 
 def positionModel(m : RoomMap, prior : Dist(Pos), front : [TSV(Dist(Float))],
                   rear : [TSV(Dist(Float))], left : [TSV(Dist(Float))],
-                  right : [TSV(Dist(Float))]) : Pos {
+                  right : [TSV(Dist(Float))], speed : [TSV(Dist(Float))]) : Pos {
   assume posPrev ~ prior
 
-  // TODO: Transition to "new" position - for now, we simply guess the new
-  // direction, ignoring steering angle and speed.
-  assume x ~ Gaussian(posPrev.x, maxSpeed)
-  assume y ~ Gaussian(posPrev.y, maxSpeed)
-  assume d ~ Uniform(0.0, 2.0 * pi)
-  var pos : Pos = {x = x, y = y, direction = d}
+  // Update our belief of the speed of the car based on estimations from the
+  // speed model.
+  var v : Float = posPrev.speed
+  loop v for tsv in speed {
+    var sigma : Float = timeRelativeSigma(timestamp(tsv))
+    assume vEst ~ value(tsv)
+    assume v ~ Gaussian(vEst, sigma)
+  }
+  // TODO: improve this estimation by making use of steering angle observations...
+  assume d ~ Gaussian(posPrev.direction, pi / 2.0)
+
+  // Use our estimated speed and direction to update our belief of the position
+  // of the car.
+  assume x ~ Gaussian(posPrev.x, v * cos(d))
+  assume y ~ Gaussian(posPrev.y, v * sin(d))
+  var pos : Pos = {x = x, y = y, direction = d, speed = v}
 
   // Update our belief of the current position based on observations
   var frontEst : Float = estimateDistanceFront(m, pos)
   loop for tsv in front {
-    var sigma : Float = timeRelativeSigma(timestamp(tsv))
+    //var distTravelled : Float = pos.speed * intToFloat(timestamp(tsv)) / intToFloat(1s)
+    //var sigma : Float = distTravelled * cos(pos.direction)
+    var sigma : Float = timeRelativeSigma(timestamp(tsv)) / 5.0
     assume frontObs ~ value(tsv)
     observe frontObs ~ Gaussian(frontEst, sigma)
   }
   var rearEst : Float = estimateDistanceRear(m, pos)
   loop for tsv in rear {
-    var sigma : Float = timeRelativeSigma(timestamp(tsv))
+    //var distTravelled : Float = pos.speed * intToFloat(timestamp(tsv)) / intToFloat(1s)
+    //var sigma : Float = 0.0 - distTravelled * cos(pos.direction)
+    var sigma : Float = timeRelativeSigma(timestamp(tsv)) / 5.0
     assume rearObs ~ value(tsv)
     observe rearObs ~ Gaussian(rearEst, sigma)
   }
   var leftEst : Float = estimateDistanceSideLeft(m, pos)
   loop for tsv in left {
-    var sigma : Float = timeRelativeSigma(timestamp(tsv))
+    var sigma : Float = timeRelativeSigma(timestamp(tsv)) / 10.0
     assume leftObs ~ value(tsv)
     observe leftObs ~ Gaussian(leftEst, sigma)
   }
   var rightEst : Float = estimateDistanceSideRight(m, pos)
   loop for tsv in right {
-    var sigma : Float = timeRelativeSigma(timestamp(tsv))
+    var sigma : Float = timeRelativeSigma(timestamp(tsv)) / 10.0
     assume rightObs ~ value(tsv)
     observe rightObs ~ Gaussian(rightEst, sigma)
   }
@@ -267,9 +283,10 @@ def positionEstimate(period : Int) : Unit {
   input rear : Dist(Float)
   input left : Dist(Float)
   input right : Dist(Float)
+  input speed : Dist(Float)
   input steeringAngle : Float
   output pos : Dist(Pos)
-  //var posBudget : Int = subInt(period, 100ms)
+  var posBudget : Int = subInt(period, 100ms)
   var m : RoomMap = readRoomMap()
   var blocks : [Coordinate] = findFreeRoomCoordinates(m)
   infer d <- initialPositionModel(blocks) particles 1000
@@ -279,19 +296,22 @@ def positionEstimate(period : Int) : Unit {
     read rear to rearIn
     read left to leftIn
     read right to rightIn
-    infer d <- positionModel(m, d, frontIn, rearIn, leftIn, rightIn) budget 900ms
+    read speed to speedIn
+    infer d <- positionModel(m, d, frontIn, rearIn, leftIn, rightIn, speedIn)
+      budget posBudget
     write d to pos
   }
 }
 
 // TODO: add parameter configuring how "agressive" the braking should be, i.e.,
-// how much risk we're willing to take. How do we inspect the position
-// estimation?
+// how much risk we're willing to take.
+// TODO: How do we inspect the samples of a distribution?
 def brakeEstimate(period : Int) : Unit {
   input pos : Dist(Pos)
   output brake : Float
   loop {
     sdelay period
+    read pos to posIn
   }
 }
 
@@ -324,10 +344,7 @@ main {
   // Network specification
   speedLeft -> speedEst.lspeed
   speedRight -> speedEst.rspeed
-  speedEst.speed -> frontDist.speed
-  speedEst.speed -> rearDist.speed
-  speedEst.speed -> leftDist.speed
-  speedEst.speed -> rightDist.speed
+  speedEst.speed -> pos.speed
   frontLeft -> frontDist.ldist
   frontRight -> frontDist.rdist
   rearLeft -> rearDist.ldist

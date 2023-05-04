@@ -19,12 +19,11 @@ int in = -1;
 std::vector<int> out_fds;
 std::string id;
 
-void close_fds(int sig) {
+void close_fds() {
   if (in != -1) close(in);
   for (int fd : out_fds) {
     close(fd);
   }
-  exit(0);
 }
 
 void fail_open(const char *f) {
@@ -87,15 +86,20 @@ void read_task() {
   }
 }
 
+void write_fd(const payload& p, size_t idx) {
+  int out = out_fds[idx];
+  int64_t tot = 0;
+  while (tot < p.sz) {
+    int count = write(out, (void*)&p.data[tot], p.sz-tot);
+    if (count == 0) exit_eof();
+    if (count < 0) fail_write(__LINE__);
+    tot += count;
+  }
+}
+
 void write_combined(const payload& p) {
   for (int i = 0; i < out_fds.size(); i++) {
-    int out = out_fds[i];
-    int64_t tot = 0;
-    while (tot < p.sz) {
-      int count = write(out, (void*)&p.data[tot], p.sz-tot);
-      if (count < 0) fail_write(__LINE__);
-      tot += count;
-    }
+    write_fd(p, i);
   }
 }
 
@@ -136,6 +140,21 @@ void write_task() {
   }
 }
 
+void notify_termination(int sig) {
+  std::vector<payload> pls;
+  while (!buffer.empty()) {
+    pls.emplace_back(buffer.front());
+    buffer.pop();
+  }
+  if (!pls.empty()) {
+    const payload &p = combine_payloads(pls);
+    write_fd(p, out_fds.size()-1);
+    free(p.data);
+  }
+  close_fds();
+  exit(0);
+}
+
 int main(int argc, char **argv) {
   id = argv[1];
   in = open(id.c_str(), O_RDWR);
@@ -146,13 +165,19 @@ int main(int argc, char **argv) {
     if (out == -1) fail_open(dst);
     out_fds.push_back(out);
   }
+  // Also write to an appropriately named file for reproducibility.
   std::string target = id + ".txt";
-  int out = open(target.c_str(), O_WRONLY | O_CREAT, S_IWUSR | S_IWGRP | S_IWOTH);
+  if (access(target.c_str(), F_OK) == 0) {
+    unlink(target.c_str());
+  }
+  int out = open(target.c_str(), O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
   if (out == -1) fail_open(target.c_str());
   out_fds.push_back(out);
-  signal(SIGINT, close_fds);
+  signal(SIGINT, notify_termination);
+  signal(SIGKILL, notify_termination);
   std::thread reader(read_task);
   reader.detach();
   write_task();
+  close_fds();
   return 0;
 }

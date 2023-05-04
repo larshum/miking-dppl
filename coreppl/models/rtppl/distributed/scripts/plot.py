@@ -11,6 +11,24 @@ import struct
 import subprocess
 import sys
 
+def read_opt_floats(f):
+    try:
+        with open(f, mode="rb") as file:
+            content = file.read()
+
+        tsvs = []
+        ofs = 0
+        while ofs < len(content):
+            ts, x, y, direction, frontDist, rearDist, leftDist, rightDist, speed = struct.unpack("=qdddddddd", content[ofs:ofs+72])
+            ofs += 72
+            # Convert RPM to m/s
+            speed = speed * 0.35 / 60.0
+            tsvs.append((ts, [x, y, direction, frontDist, rearDist, leftDist, rightDist, speed]))
+        return tsvs
+    except FileNotFoundError:
+        print("did not find true values file")
+        return None
+
 def read_dists(f, nfields):
     with open(f, mode="rb") as file:
         content = file.read()
@@ -21,7 +39,7 @@ def read_dists(f, nfields):
         sz, ts = struct.unpack("=qq", content[ofs:ofs+16])
         ofs += 16
         if len(content) - ofs < sz - 8:
-            print(f"Warning: incomplete input from {f}")
+            print(f"Warning: incomplete input from {f} after reading {len(dists)} distributions")
             break
         samplesz = (nfields + 1) * 8
         nsamples = int((sz - 8) / samplesz)
@@ -39,27 +57,21 @@ def read_dists(f, nfields):
     return dists
 
 def read_pos_dists(f):
-    return sorted(read_dists(f, 3), key=lambda x: x[0])
+    return sorted(read_dists(f, 4), key=lambda x: x[0])
 
 def read_float_dists(f):
     return sorted(read_dists(f, 1), key=lambda x: x[0])
 
-def clamp(p, n):
-    if p < 0:
-        return 0
-    if p >= n:
-        return n-1
-
-def choose_dist(dists, ts):
-    p = bisect.bisect(dists, ts, key=lambda x: x[0])
+def choose_closest_after_timestamp(dists, ts):
+    p = bisect.bisect_left(dists, ts, key=lambda x: x[0])
     if p < 0:
         return dists[0]
     elif p >= len(dists):
         return dists[-1]
     return dists[p]
 
-def plot_dist(axs, dists, ts):
-    _, samples = choose_dist(dists, ts)
+def plot_dist(axs, dists, ts, true_val):
+    _, samples = choose_closest_after_timestamp(dists, ts)
     weights, values = [], []
     for w, v in samples:
         weights.append(exp(w))
@@ -68,6 +80,11 @@ def plot_dist(axs, dists, ts):
     w = 0.01
     axs.clear()
     axs.hist(values, bins=np.arange(min(values), max(values) + w, w), rwidth=0.9, weights=weights)
+    if true_val is not None:
+        textend = f",simulator value={true_val:.3f}"
+    else:
+        textend = ""
+    axs.set_title(f"#particles={len(samples)}{textend}")
 
 if len(sys.argv) != 2:
     print("Expected one argument: the room png file")
@@ -77,30 +94,44 @@ im = Image.open(roomFile)
 rows = im.height
 cols = im.width
 
-def plot_pos_dist(axs, dists, ts):
-    _, samples = choose_dist(dists, ts)
+def plot_pos_dist(axs, dists, ts, true_vals):
+    _, samples = choose_closest_after_timestamp(dists, ts)
     data = np.zeros([rows, cols])
+    expected = (0, 0)
     for w, s in samples:
         x = int(10 * s[0])
         y = int(10 * s[1])
+        expected = (expected[0] + 10*s[0] * exp(w), expected[1] + 10*s[1] * exp(w))
         if x >= 0 and x < cols and y >= 0 and y < rows:
             data[y][x] += 1
+    axs.clear()
     axs.imshow(data)
+    # Plot the true x- and y-coordinates, if available
+    if true_vals is not None:
+        x = int(10 * true_vals[0])
+        y = int(10 * true_vals[1])
+        axs.plot(x, y, 'ro', markersize=1)
+        textend = f",direction={true_vals[2]:.3f}"
+    else:
+        textend = ""
+    textend = textend + f"\nexpected_pos=({expected[0]:.2f},{expected[1]:.2f})"
     axs.imshow(im, alpha=0.5)
     axs.set_xlabel("x")
     axs.set_ylabel("y")
+    axs.set_title(f"#particles={len(samples)}{textend}")
 
 if not os.path.exists("plots/"):
     os.mkdir("plots")
 
 inputs = {
-    "pos": read_pos_dists("pos.txt"),
+    "pos": read_pos_dists("pos-pos.txt"),
     "front": read_float_dists("frontDist-dist.txt"),
     "rear": read_float_dists("rearDist-dist.txt"),
     "left": read_float_dists("leftDist-dist.txt"),
     "right": read_float_dists("rightDist-dist.txt"),
     "speed": read_float_dists("speedEst-speed.txt")
 }
+true_vals = read_opt_floats("true-values.txt")
 
 now = datetime.now()
 target = f'plots/{now.strftime("%Y%m%d-%H%M%S")}'
@@ -108,7 +139,7 @@ os.mkdir(target)
 
 fig, (laxs, raxs) = plt.subplots(1, 2)
 plt.subplots_adjust(bottom=0.20, wspace=0.4, hspace=0.5)
-fig.set_dpi(150)
+fig.set_dpi(200)
 fst_ts, _ = inputs["pos"][0]
 last_ts, _ = inputs["pos"][-1]
 axfreq = fig.add_axes([0.25, 0.05, 0.65, 0.03])
@@ -119,30 +150,46 @@ ts_slider = Slider(
     valmax=(last_ts-fst_ts)/1e9,
     valinit=0
 )
-rax = fig.add_axes([0.75, 0.7, 0.15, 0.15])
+rax = fig.add_axes([0.75, 0.8, 0.15, 0.15])
 dist_buttons = RadioButtons (
     rax,
     ("front", "rear", "left", "right", "speed"),
 )
 
 def update(ts, label):
+    if true_vals is not None:
+        _, tv = choose_closest_after_timestamp(true_vals, ts)
+    else:
+        tv = None
+
     # Update distribution plots to the one most recently occuring prior to
     # or at the given timestamp (relative to the first position estimation).
     if label == "front":
         laxs.set_xlabel("front distance (m)")
+        idx = 3
     elif label == "rear":
         laxs.set_xlabel("rear distance (m)")
+        idx = 4
     elif label == "left":
         laxs.set_xlabel("left distance (m)")
+        idx = 5
     elif label == "right":
         laxs.set_xlabel("right distance (m)")
+        idx = 6
     elif label == "speed":
         laxs.set_xlabel("speed (m/s)")
+        idx = 7
+    else:
+        print(f"Unknown label: {label}")
     laxs.set_ylabel("probability")
-    plot_dist(laxs, inputs[label], ts)
+    if tv is not None:
+        true_val = tv[idx]
+    else:
+        true_val = None
+    plot_dist(laxs, inputs[label], ts, true_val)
 
     # Update position image
-    plot_pos_dist(raxs, inputs["pos"], ts)
+    plot_pos_dist(raxs, inputs["pos"], ts, tv)
 
     fig.canvas.draw_idle()
 

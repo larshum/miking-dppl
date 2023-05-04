@@ -10,9 +10,12 @@ procs = []
 def handler(sig, frame):
     print("Killing remaining processes");
     for proc in procs:
-        proc.kill()
-        proc.terminate()
-        proc.wait()
+        proc.send_signal(signal.SIGINT)
+        try:
+            proc.wait(0.5)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            proc.wait()
     sys.exit(0)
 
 def read_network(file):
@@ -20,21 +23,13 @@ def read_network(file):
         data = json.loads(f.read())
 
     # We ignore the brake task and any connections involving it
-    ignored_task = set(["brake"])
-    tasks = []
-    for t in data["tasks"]:
-        if t in ignored_task:
-            pass
-        else:
-            tasks.append(t)
+    tasks = data["tasks"]
 
     # We only run the relay to deliver data between tasks
     ignored_conn = set(data["sensors"] + data["actuators"])
     relays = {}
     for c in data["connections"]:
-        if c["from"].startswith("brake") or c["to"].startswith("brake"):
-            pass
-        elif c["from"] in ignored_conn or c["to"] in ignored_conn:
+        if c["from"] in ignored_conn or c["to"] in ignored_conn:
             pass
         else:
             if not c["from"] in relays:
@@ -48,13 +43,14 @@ def read_network(file):
 
 signal.signal(signal.SIGINT, handler)
 
+map_file = sys.argv[1]
 nw = read_network("network.json")
 for src, dsts in nw["relays"].items():
     cmd = ["./relay", src] + dsts
     print(cmd)
     procs.append(subprocess.Popen(cmd, stdin=None, stdout=None, stderr=None))
 for task in nw["tasks"]:
-    cmd = [f"./{task}", "../maps/track.txt"]
+    cmd = [f"./{task}", map_file]
     print(cmd)
     procs.append(subprocess.Popen(cmd, stdin=None, stdout=None, stderr=None, env={"OCAMLRUNPARAM": "b"}))
 
