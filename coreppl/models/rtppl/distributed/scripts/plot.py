@@ -1,7 +1,6 @@
 from PIL import Image
 from datetime import datetime
 from matplotlib.widgets import Slider, RadioButtons
-from math import exp
 import numpy as np
 import matplotlib.pyplot as plt
 import bisect
@@ -19,12 +18,14 @@ def read_opt_floats(f):
         tsvs = []
         ofs = 0
         while ofs < len(content):
-            ts, x, y, direction, frontDist, rearDist, leftDist, rightDist, speed = struct.unpack("=qdddddddd", content[ofs:ofs+72])
-            ofs += 72
+            ts, x, y, direction, flDist, frDist, rlDist, rrDist, lDist, rDist, speed = struct.unpack("=qdddddddddd", content[ofs:ofs+88])
+            ofs += 88
             # Convert RPM to m/s
             speed = speed * 0.35 / 60.0
-            tsvs.append((ts, [x, y, direction, frontDist, rearDist, leftDist, rightDist, speed]))
-        return tsvs
+            # Apply modulo to the provided direction
+            direction = direction % (2*math.pi)
+            tsvs.append((ts, [x, y, direction, flDist, frDist, rlDist, rrDist, lDist, rDist, speed]))
+        return sorted(tsvs, key=lambda x: x[0])
     except FileNotFoundError:
         print("did not find true values file")
         return None
@@ -52,39 +53,15 @@ def read_dists(f, nfields):
                 x, = struct.unpack("d", content[ofs:ofs+8])
                 v.append(x)
                 ofs += 8
-            samples.append((w, v))
+            samples.append((math.exp(w), v))
         dists.append((ts, samples))
     return dists
 
 def read_pos_dists(f):
-    return sorted(read_dists(f, 4), key=lambda x: x[0])
+    return sorted(read_dists(f, 3), key=lambda x: x[0])
 
 def read_float_dists(f):
     return sorted(read_dists(f, 1), key=lambda x: x[0])
-
-def choose_closest_after_timestamp(dists, ts):
-    p = bisect.bisect_left(dists, ts, key=lambda x: x[0])
-    if p < 0:
-        return dists[0]
-    elif p >= len(dists):
-        return dists[-1]
-    return dists[p]
-
-def plot_dist(axs, dists, ts, true_val):
-    _, samples = choose_closest_after_timestamp(dists, ts)
-    weights, values = [], []
-    for w, v in samples:
-        weights.append(exp(w))
-        values.append(v[0])
-    weights = np.array(weights)
-    w = 0.01
-    axs.clear()
-    axs.hist(values, bins=np.arange(min(values), max(values) + w, w), rwidth=0.9, weights=weights)
-    if true_val is not None:
-        textend = f",simulator value={true_val:.3f}"
-    else:
-        textend = ""
-    axs.set_title(f"#particles={len(samples)}{textend}")
 
 if len(sys.argv) != 2:
     print("Expected one argument: the room png file")
@@ -94,39 +71,15 @@ im = Image.open(roomFile)
 rows = im.height
 cols = im.width
 
-def plot_pos_dist(axs, dists, ts, true_vals):
-    _, samples = choose_closest_after_timestamp(dists, ts)
-    data = np.zeros([rows, cols])
-    expected = (0, 0)
-    for w, s in samples:
-        x = int(10 * s[0])
-        y = int(10 * s[1])
-        expected = (expected[0] + 10*s[0] * exp(w), expected[1] + 10*s[1] * exp(w))
-        if x >= 0 and x < cols and y >= 0 and y < rows:
-            data[y][x] += 1
-    axs.clear()
-    axs.imshow(data)
-    # Plot the true x- and y-coordinates, if available
-    if true_vals is not None:
-        x = int(10 * true_vals[0])
-        y = int(10 * true_vals[1])
-        axs.plot(x, y, 'ro', markersize=1)
-        textend = f",direction={true_vals[2]:.3f}"
-    else:
-        textend = ""
-    textend = textend + f"\nexpected_pos=({expected[0]:.2f},{expected[1]:.2f})"
-    axs.imshow(im, alpha=0.5)
-    axs.set_xlabel("x")
-    axs.set_ylabel("y")
-    axs.set_title(f"#particles={len(samples)}{textend}")
-
 if not os.path.exists("plots/"):
     os.mkdir("plots")
 
 inputs = {
     "pos": read_pos_dists("pos-pos.txt"),
-    "front": read_float_dists("frontDist-dist.txt"),
-    "rear": read_float_dists("rearDist-dist.txt"),
+    "front-left": read_float_dists("frontLeftDist-dist.txt"),
+    "front-right": read_float_dists("frontRightDist-dist.txt"),
+    "rear-left": read_float_dists("rearLeftDist-dist.txt"),
+    "rear-right": read_float_dists("rearRightDist-dist.txt"),
     "left": read_float_dists("leftDist-dist.txt"),
     "right": read_float_dists("rightDist-dist.txt"),
     "speed": read_float_dists("speedEst-speed.txt")
@@ -153,8 +106,56 @@ ts_slider = Slider(
 rax = fig.add_axes([0.75, 0.8, 0.15, 0.15])
 dist_buttons = RadioButtons (
     rax,
-    ("front", "rear", "left", "right", "speed"),
+    ("front-left", "front-right", "rear-left", "rear-right", "left", "right", "speed"),
 )
+
+def choose_closest_after_timestamp(s, ts):
+    p = bisect.bisect(s, int(ts), key=lambda x: x[0])
+    if p >= len(s):
+        return s[-1]
+    return s[p]
+
+def plot_dist(axs, dists, ts, true_val):
+    ts, samples = choose_closest_after_timestamp(dists, ts)
+    weights, values = [], []
+    for w, v in samples:
+        weights.append(w)
+        values.append(v[0])
+    weights = np.array(weights)
+    w = 0.01
+    axs.clear()
+    axs.hist(values, bins=np.arange(min(values), max(values) + w, w), rwidth=0.9, weights=weights)
+    if true_val is not None:
+        textend = f",simulator value={true_val:.3f}"
+    else:
+        textend = ""
+    axs.set_title(f"{(ts-fst_ts)/1e9}:\n#particles={len(samples)}{textend}")
+
+def plot_pos_dist(axs, dists, ts, true_vals):
+    ts, samples = choose_closest_after_timestamp(dists, ts)
+    data = np.zeros([rows, cols])
+    expected = (0.0, 0.0)
+    for w, s in samples:
+        x = int(10 * s[0])
+        y = int(10 * s[1])
+        expected = (expected[0]+10*s[0]*w, expected[1]+10*s[1]*w)
+        if x >= 0 and x < cols and y >= 0 and y < rows:
+            data[y][x] += 1
+    axs.clear()
+    axs.imshow(data)
+    # Plot the true x- and y-coordinates, if available
+    if true_vals is not None:
+        x = int(10 * true_vals[0])
+        y = int(10 * true_vals[1])
+        axs.plot(x, y, 'ro', markersize=1)
+        textend = f",direction={true_vals[2]:.3f}"
+    else:
+        textend = ""
+    axs.plot(expected[0], expected[1], 'bo', markersize=1)
+    axs.imshow(im, alpha=0.5)
+    axs.set_xlabel("x")
+    axs.set_ylabel("y")
+    axs.set_title(f"{(ts-fst_ts)/1e9}:\n#particles={len(samples)}{textend}")
 
 def update(ts, label):
     if true_vals is not None:
@@ -164,21 +165,20 @@ def update(ts, label):
 
     # Update distribution plots to the one most recently occuring prior to
     # or at the given timestamp (relative to the first position estimation).
-    if label == "front":
-        laxs.set_xlabel("front distance (m)")
+    if label == "front-left":
         idx = 3
-    elif label == "rear":
-        laxs.set_xlabel("rear distance (m)")
+    elif label == "front-right":
         idx = 4
-    elif label == "left":
-        laxs.set_xlabel("left distance (m)")
+    elif label == "rear-left":
         idx = 5
-    elif label == "right":
-        laxs.set_xlabel("right distance (m)")
+    elif label == "rear-right":
         idx = 6
-    elif label == "speed":
-        laxs.set_xlabel("speed (m/s)")
+    elif label == "left":
         idx = 7
+    elif label == "right":
+        idx = 8
+    elif label == "speed":
+        idx = 9
     else:
         print(f"Unknown label: {label}")
     laxs.set_ylabel("probability")
