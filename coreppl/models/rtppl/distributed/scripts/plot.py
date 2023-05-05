@@ -71,9 +71,6 @@ im = Image.open(roomFile)
 rows = im.height
 cols = im.width
 
-if not os.path.exists("plots/"):
-    os.mkdir("plots")
-
 inputs = {
     "pos": read_pos_dists("pos-pos.txt"),
     "front-left": read_float_dists("frontLeftDist-dist.txt"),
@@ -85,10 +82,6 @@ inputs = {
     "speed": read_float_dists("speedEst-speed.txt")
 }
 true_vals = read_opt_floats("true-values.txt")
-
-now = datetime.now()
-target = f'plots/{now.strftime("%Y%m%d-%H%M%S")}'
-os.mkdir(target)
 
 fig, (laxs, raxs) = plt.subplots(1, 2)
 plt.subplots_adjust(bottom=0.20, wspace=0.4, hspace=0.5)
@@ -204,19 +197,3 @@ update_slider(0)
 ts_slider.on_changed(update_slider)
 dist_buttons.on_clicked(update_dist)
 plt.show()
-
-#for i, (_, dist) in enumerate(inputs["pos"]):
-#    fig, axs = plt.subplots(1)
-#    data = np.zeros([rows, cols])
-#    for (w, s) in dist:
-#        # NOTE: assumes each pixel of the map represents a 10x10 cm square
-#        x = int(10 * s[0])
-#        y = int(10 * s[1])
-#        if x >= 0 and x < cols and y >= 0 and y < rows:
-#            data[y][x] += 1
-#    axs.imshow(data)
-#    axs.set_xlabel("x")
-#    axs.set_ylabel("y")
-#    axs.imshow(im, alpha=.5)
-#    fig.savefig(f"{target}/{i+1:04}.png")
-#    plt.close()
