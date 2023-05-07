@@ -49,6 +49,13 @@ def posToCoordinate(p : Pos) : Coordinate {
   }
 }
 
+def positionAtOffset(p : Pos, ofs : Offset) : Pos {
+  p.x = p.x + ofs.distance * cos(p.direction + ofs.angle)
+  p.y = p.y + ofs.distance * sin(p.direction + ofs.angle)
+  p.direction = p.direction + ofs.direction
+  return p
+}
+
 def withinRoomBounds(m : RoomMap, p : Pos) : Bool {
   var c : Coordinate = posToCoordinate(p)
   var res : Bool = true
@@ -58,6 +65,24 @@ def withinRoomBounds(m : RoomMap, p : Pos) : Bool {
     res = not(m.data[c.row][c.col])
   }
   return res
+}
+
+// Computes whether a car centered at the given position is within the bounds
+// of the provided map. We estimate this by verifying that the sensors in each
+// direction are within the bounds of the map.
+def carWithinRoomBounds(m : RoomMap, center : Pos) : Bool {
+  var sensorOffsets : [Offset] = [
+    frontLeftOffset, frontRightOffset, rearLeftOffset, rearRightOffset,
+    sideLeftOffset, sideRightOffset
+  ]
+  var acc : Bool = true
+  loop acc for ofs in sensorOffsets {
+    cond acc if acc {
+      var p : Pos = positionAtOffset(center, ofs)
+      acc = withinRoomBounds(m, p)
+    } else {}
+  }
+  return acc
 }
 
 def findFreeRoomCoordinates(m : RoomMap) : [Coordinate] {
@@ -212,9 +237,7 @@ def initialPositionModel(blocks : [Coordinate]) : Pos {
 // TODO: Take the sensor offsets into account when estimating the distance.
 // The position denotes our belief of the center of the car.
 def estimateDistance(m : RoomMap, ofs : Offset, p : Pos) : Float {
-  p.x = p.x + ofs.distance * cos(p.direction + ofs.angle)
-  p.y = p.y + ofs.distance * sin(p.direction + ofs.angle)
-  p.direction = p.direction + ofs.direction
+  p = positionAtOffset(p, ofs)
   var eps : Float = 0.05
   var acc : {d : Float, p : Pos} = {d = 0.0, p = p}
   loop acc while withinRoomBounds(m, acc.p) {
@@ -258,7 +281,7 @@ def positionModel(m : RoomMap, prior : Dist(Pos), flObs : [TSV(Dist(Float))],
     observeSensor(m, pos, sensorOffsets[i], sensorObservations[i])
   }
 
-  cond if not(withinRoomBounds(m, pos)) {
+  cond if not(carWithinRoomBounds(m, pos)) {
     degenerate
   } else {}
   resample
@@ -295,16 +318,58 @@ def positionEstimate(period : Int) : Unit {
   }
 }
 
-// TODO: add parameter configuring how "agressive" the braking should be, i.e.,
-// how much risk we're willing to take.
-// TODO: How do we inspect the samples of a distribution?
+// Defines the braking model, which makes use of the latest available position
+// estimation to estimate the position at a given lookahead, relative to the
+// logical time of the braking task. If the estimated position at this
+// lookahead is outside of the bounds of the map, we say that the car should
+// brake.
+def brakeModel(m : RoomMap, posEst : TSV(Dist(Pos)), lookahead : Int) : Bool {
+  assume posPrev ~ value(posEst)
+
+  // Estimate the new position of the car at the given lookahead into the
+  // future, assuming the car drives in a certain direction at a random
+  // (average) speed.
+  var ts : Int = timestamp(posEst)
+  assume v ~ Uniform(0.0-0.5, 0.5)
+  var dist : Float = v * intToFloat(subInt(lookahead, ts)) / intToFloat(1s)
+  assume dir ~ Gaussian(posPrev.direction, pi / 2.0)
+  var x : Float = posPrev.x + dist * cos(dir)
+  var y : Float = posPrev.y + dist * sin(dir)
+  var p : Pos = {x = x, y = y, direction = dir}
+
+  // If the estimated position of the car a second in the future is not
+  // within the bounds of the map, it means the car has crashed at some point
+  // in between. This means that the car needs to brake.
+  return not(carWithinRoomBounds(m, p))
+}
+
+def countTrue(bools : [Bool]) : Int {
+  var acc : Int = 0
+  loop acc for b in bools {
+    cond acc if b { acc = addInt(acc, 1) } else {}
+  }
+  return acc
+}
+
 def brakeEstimate(period : Int) : Unit {
   input pos : Dist(Pos)
   output brake : Float
+  var m : RoomMap = readRoomMap ()
   loop {
     sdelay period
     read pos to posIn
-    write 0.0 to brake
+    cond if gtInt(|posIn|, 0) {
+      var posDist : TSV(Dist(Pos)) = posIn[subInt(|posIn|, 1)]
+      infer d <- brakeModel(m, posDist, 1s) particles 1000
+      // We use a built-in function for extracting the values of an
+      // empirical distribution.
+      var res : [Bool] = samples d
+
+      // Determine the constant via a parameter?
+      cond if gtInt(countTrue(res), 700) {
+        write 1.0 to brake
+      } else { }
+    } else {}
   }
 }
 

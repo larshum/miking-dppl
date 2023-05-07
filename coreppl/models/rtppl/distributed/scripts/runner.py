@@ -43,6 +43,9 @@ def read_network(file):
 
 signal.signal(signal.SIGINT, handler)
 
+if not os.path.isfile("relay"):
+    subprocess.run(["g++", "relay.cpp", "-std=c++17", "-o", "relay"])
+
 map_file = sys.argv[1]
 nw = read_network("network.json")
 for src, dsts in nw["relays"].items():
