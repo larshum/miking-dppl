@@ -85,7 +85,7 @@ lang RtpplJson = RtpplAst
     writeFile "network.json" (json2string json)
 end
 
-lang Rtppl = 
+lang Rtppl =
   RtpplCompile + RtpplValidate + RtpplPrettyPrint + RtpplJson +
   MExprCompile + DPPLParser +
   MExprLowerNestedPatterns + MExprTypeCheck + MCoreCompileLang

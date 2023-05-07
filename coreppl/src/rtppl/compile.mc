@@ -756,6 +756,19 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
     TmDist {
       dist = DBernoulli {p = compileRtpplExpr p},
       ty = _tyuk info, info = info }
+  | DistSamplesRtpplExpr {e = e, info = info} ->
+    let s = nameNoSym "s" in
+    let binds = mapFromSeq cmpSID [
+      (stringToSid "0", PatNamed {ident = PName s, ty = _tyuk info, info = info}),
+      (stringToSid "1", PatNamed {ident = PWildcard (), ty = _tyuk info, info = info})
+    ] in
+    TmMatch {
+      target = TmApp {
+        lhs = TmConst {val = CDistEmpiricalSamples (), ty = _tyuk info, info = info},
+        rhs = compileRtpplExpr e, ty = _tyuk info, info = info},
+      pat = PatRecord {bindings = binds, ty = _tyuk info, info = info},
+      thn = _var info s, els = TmNever {ty = _tyuk info, info = info},
+      ty = _tyuk info, info = info}
 
   sem _constructApp : Info -> Const -> RtpplExpr -> RtpplExpr -> Expr
   sem _constructApp info c lhs =
@@ -1136,7 +1149,7 @@ lang RtpplCompile =
       lhs = TmConst {val = CDeRef (), ty = _tyuk info, info = info},
       rhs = _var info inputSeqsId, ty = _tyuk info, info = info
     } in
-    _proj info targetExpr portId
+    _unsafe (_proj info targetExpr portId)
   | TmWrite {portId = portId, src = src, delay = delay, info = info} ->
     let rtIds = getRuntimeIds () in
     let tsv =
