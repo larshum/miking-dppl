@@ -368,7 +368,7 @@ def brakeEstimate(period : Int) : Unit {
       // Determine the constant via a parameter?
       cond if gtInt(countTrue(res), 700) {
         write 1.0 to brake
-      } else { }
+      } else {}
     } else {}
   }
 }

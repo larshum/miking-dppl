@@ -384,6 +384,47 @@ def positioning(period : Int) : Unit {
   }
 }
 
+def countTrue(bools : [Bool]) : Int {
+  var acc : Int = 0
+  loop acc for b in bools {
+    cond acc if b { acc = addInt(acc, 1) } else {}
+  }
+  return acc
+}
+
+def brakingModel(m : RoomMap, statesTsv : TSV(Dist(State)), lookahead : Int) : Bool {
+  assume sprev ~ value(statesTsv)
+
+  var ts : Int = timestamp(statesTsv)
+  assume v ~ Gaussian(sprev.speed, 0.1)
+  assume dir ~ Gaussian(sprev.direction, pi / 4.0)
+  var dist : Float = sprev.speed * intToFloat(subInt(lookahead, ts)) / intToFloat(1s)
+  var s : State = {
+    x = sprev.x + dist * cos(dir), y = sprev.y + dist * sin(dir), speed = v,
+    direction = dir, steeringAngle = sprev.steeringAngle
+  }
+
+  return not(withinRoomBounds(m, s))
+}
+
+def braking(period : Int) : Unit {
+  input pos : Dist(State)
+  output brake : Float
+  var m : RoomMap = readRoomMap()
+  loop {
+    sdelay period
+    read pos to posIn
+    cond if gtInt(|posIn|, 0) {
+      var s : TSV(Dist(State)) = posIn[subInt(|posIn|, 1)]
+      infer d <- brakingModel(m, s, 1s) particles 1000
+      var res : [Bool] = samples d
+      cond if gtInt(countTrue(res), 700) {
+        write 1.0 to brake
+      } else {}
+    } else {}
+  }
+}
+
 main {
   // Distance sensors
   sensor frontLeft : Float
@@ -398,10 +439,10 @@ main {
   sensor speedRight : Float
   sensor steeringAngle : Float
 
-  // Distribution over positions
-  actuator posDist : Dist(State)
+  actuator brake : Float
 
   task pos = positioning(1s)
+  task brake = braking(1s)
 
   frontLeft -> pos.frontLeft
   frontRight -> pos.frontRight
@@ -412,5 +453,6 @@ main {
   speedLeft -> pos.speedLeft
   speedRight -> pos.speedRight
   steeringAngle -> pos.steeringAngle
-  pos.posDist -> posDist
+  pos.posDist -> brake.pos
+  brake.brake -> brake
 }

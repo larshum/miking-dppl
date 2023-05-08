@@ -218,6 +218,8 @@ lang RtpplPrettyPrint = RtpplAst
   | UniformDistRtpplExpr {lo = lo, hi = hi} ->
     let ii = pprintIndentIncrement indent in
     join ["Uniform(", pprintRtpplExpr ii lo, ", ", pprintRtpplExpr ii hi, ")"]
+  | DistSamplesRtpplExpr {e = e} ->
+    concat "samples " (pprintRtpplExpr indent e)
 
   sem pprintRtpplArgs : Int -> [RtpplExpr] -> String
   sem pprintRtpplArgs indent =
