@@ -42,7 +42,7 @@ for i, dist in enumerate(dists):
     values, weights = zip(*samples)
     fig, axs0 = plt.subplots(1)
     weights = np.array(list(map(exp, weights)))
-    axs0.hist(values, bins=np.arange(min(values), max(values) + w, w), rwidth=0.9, weights=weights)
+    axs0.hist(values, bins=np.arange(0.0, 2.0, w), rwidth=0.9, weights=weights)
     axs0.set_xlabel("x")
     axs0.set_ylabel("probability")
     fig.savefig(f"{target}/{i:04}.png")

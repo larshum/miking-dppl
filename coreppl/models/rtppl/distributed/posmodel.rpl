@@ -163,36 +163,34 @@ def speedEst(period : Int) : Unit {
 
 // Estimates the "true" distance between the car and an obstacle given
 // observations from one or multiple sensors placed at a certain direction.
-def distanceModel(prior : Dist(Float), obs : [TSV(Float)],
+def distanceModel(period : Int, prior : Dist(Float), obs : [TSV(Float)],
                   maxSensorRange : Float) : Float {
-  // We sample from the prior to get the distance estimate from our previous
-  // iteration.
-  assume dprev ~ prior
+  assume d ~ Uniform(0.0, 10.0)
 
-  // We are uncertain about the new distance, but we assume it is related to
-  // our previous estimate through a normal distribution.
-  assume d ~ Gaussian(dprev, 1.0)
-
-  cond if d < 0.0 || d > 10.0 {
-    degenerate
+  cond if eqInt(|obs|, 0) {
+    // If we have no new observations, we sample from the distribution of
+    // distances from our previous estimation and treat that as an observation.
+    assume dprev ~ prior
+    observe dprev ~ Gaussian(d, timeRelativeSigma(negInt(period)))
   } else {
     loop for tsv in obs {
       var sigma : Float = timeRelativeSigma(timestamp(tsv))
       var obsDist : Float = value(tsv)
-      // NOTE: The following approach assumes all observations provided by the
-      // distance sensors are correct and relatively exact. This is true for the
-      // simulator, but not for the car (in particular the ultrasonic sensors).
-      cond if obsDist > maxSensorRange {
-        cond if not(d > maxSensorRange) {
-          degenerate
-        } else {}
-      } else {
-        observe obsDist ~ Gaussian(d, sigma)
-      }
+      // We include a probability that a given observed value is noise in the
+      // model, in which case we completely ignore the observed value.
+      // TODO: choose this value based on real-world data and choose exact
+      // behavior based on which kind of sensor we are estimating for.
+      assume obsNotNoise ~ Bernoulli(0.9)
+      cond if obsNotNoise {
+        cond if obsDist > maxSensorRange {
+          cond if not(d > maxSensorRange) { degenerate } else {}
+        } else {
+          observe obsDist ~ Gaussian(d, sigma)
+        }
+      } else {}
     }
   }
 
-  resample
   return d
 }
 
@@ -206,7 +204,7 @@ def ultrasonicDistance(period : Int) : Unit {
   loop d {
     sdelay period
     read distObs to obs
-    infer d <- distanceModel(d, obs, ultrasonicMaxRange) particles 1000
+    infer d <- distanceModel(period, d, obs, ultrasonicMaxRange) particles 1000
     write d to dist
   }
 }
@@ -218,7 +216,7 @@ def tofDistance(period : Int) : Unit {
   loop d {
     sdelay period
     read distObs to obs
-    infer d <- distanceModel(d, obs, tofMaxRange) particles 1000
+    infer d <- distanceModel(period, d, obs, tofMaxRange) particles 1000
     write d to dist
   }
 }
@@ -236,7 +234,6 @@ def initialPositionModel(blocks : [Coordinate]) : Pos {
   return { x = x + xOfs, y = y + yOfs, direction = pi }
 }
 
-// TODO: Take the sensor offsets into account when estimating the distance.
 // The position denotes our belief of the center of the car.
 def estimateDistance(m : RoomMap, ofs : Offset, p : Pos) : Float {
   p = positionAtOffset(p, ofs)

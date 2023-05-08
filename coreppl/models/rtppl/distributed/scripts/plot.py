@@ -117,12 +117,10 @@ def plot_dist(axs, dists, ts, true_val):
     weights = np.array(weights)
     w = 0.01
     axs.clear()
-    axs.hist(values, bins=np.arange(min(values), max(values) + w, w), rwidth=0.9, weights=weights)
+    axs.hist(values, bins=np.arange(0.0, 10.0, 0.05), rwidth=0.9, weights=weights)
     if true_val is not None:
-        textend = f",simulator value={true_val:.3f}"
-    else:
-        textend = ""
-    axs.set_title(f"{(ts-fst_ts)/1e9}:\n#particles={len(samples)}{textend}")
+        axs.axvline(x=true_val, ymin=0.99, ymax=1.0, color="green")
+    axs.set_title(f"{(ts-fst_ts)/1e9}:\n#particles={len(samples)}")
 
 def plot_pos_dist(axs, dists, ts, true_vals):
     ts, samples = choose_closest_after_timestamp(dists, ts)
@@ -133,7 +131,7 @@ def plot_pos_dist(axs, dists, ts, true_vals):
         y = int(10 * s[1])
         expected = (expected[0]+10*s[0]*w, expected[1]+10*s[1]*w)
         if x >= 0 and x < cols and y >= 0 and y < rows:
-            data[y][x] += 1
+            data[y][x] += w
     axs.clear()
     axs.imshow(data)
     # Plot the true x- and y-coordinates, if available
