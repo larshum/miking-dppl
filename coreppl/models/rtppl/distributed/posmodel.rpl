@@ -130,17 +130,18 @@ def speedModel(prior : Dist(Float), observations : [TSV(Float)]) : Float {
   // Our new belief of the speed is normally distributed around our old belief.
   // TODO: choose sigma based on the max acceleration of the car.
   assume v ~ Gaussian(vprev, 0.1)
-
-  loop for tsv in observations {
-    var ts : Int = timestamp(tsv)
-    var sigma : Float = timeRelativeSigma(timestamp(tsv)) / 5.0
-    var rpm : Float = value(tsv)
-    var mps : Float = rpm * wheelCircumference / 60.0
-    observe mps ~ Gaussian(v, sigma)
-  }
-  cond if v < 0.0-maxSpeed || v > maxSpeed {
+  cond if v < 0.0 || v > maxSpeed {
     degenerate
-  } else {}
+  } else {
+    loop for tsv in observations {
+      var ts : Int = timestamp(tsv)
+      var sigma : Float = timeRelativeSigma(timestamp(tsv)) / 5.0
+      var rpm : Float = value(tsv)
+      var mps : Float = rpm * wheelCircumference / 60.0
+      observe mps ~ Gaussian(v, sigma)
+    }
+  }
+
   resample
   return v
 }
@@ -149,7 +150,7 @@ def speedEst(period : Int) : Unit {
   input lspeed : Float
   input rspeed : Float
   output speed : Dist(Float)
-  var d : Dist(Float) = Uniform(0.0-0.5, 0.5)
+  var d : Dist(Float) = Uniform(0.0, maxSpeed)
   loop d {
     sdelay period
     read lspeed to lin
@@ -172,24 +173,25 @@ def distanceModel(prior : Dist(Float), obs : [TSV(Float)],
   // our previous estimate through a normal distribution.
   assume d ~ Gaussian(dprev, 1.0)
 
-  loop for tsv in obs {
-    var sigma : Float = timeRelativeSigma(timestamp(tsv))
-    var obsDist : Float = value(tsv)
-    // NOTE: The following approach assumes all observations provided by the
-    // distance sensors are correct and relatively exact. This is true for the
-    // simulator, but not for the car (in particular the ultrasonic sensors).
-    cond if obsDist > maxSensorRange {
-      cond if not(d > maxSensorRange) {
-        degenerate
-      } else {}
-    } else {
-      observe obsDist ~ Gaussian(d, sigma)
+  cond if d < 0.0 || d > 10.0 {
+    degenerate
+  } else {
+    loop for tsv in obs {
+      var sigma : Float = timeRelativeSigma(timestamp(tsv))
+      var obsDist : Float = value(tsv)
+      // NOTE: The following approach assumes all observations provided by the
+      // distance sensors are correct and relatively exact. This is true for the
+      // simulator, but not for the car (in particular the ultrasonic sensors).
+      cond if obsDist > maxSensorRange {
+        cond if not(d > maxSensorRange) {
+          degenerate
+        } else {}
+      } else {
+        observe obsDist ~ Gaussian(d, sigma)
+      }
     }
   }
 
-  cond if d < 0.0 || d > 10.0 {
-    degenerate
-  } else {}
   resample
   return d
 }
@@ -251,7 +253,7 @@ def estimateDistance(m : RoomMap, ofs : Offset, p : Pos) : Float {
 }
 
 def observeSensor(m : RoomMap, pos : Pos, sensorOffset : Offset,
-									obs : [TSV(Dist(Float))]) : Unit {
+                  obs : [TSV(Dist(Float))]) : Unit {
   var estDist : Float = estimateDistance(m, sensorOffset, pos)
   loop for tsv in obs {
     var sigma : Float = timeRelativeSigma(timestamp(tsv)) / 10.0
@@ -268,23 +270,25 @@ def positionModel(m : RoomMap, prior : Dist(Pos), flObs : [TSV(Dist(Float))],
 
   // Perform a naive transition model from the position we estimated the car
   // was in during the previous iteration.
-  assume x ~ Gaussian(posPrev.x, 1.0)
-  assume y ~ Gaussian(posPrev.y, 1.0)
   assume d ~ Gaussian(posPrev.direction, pi / 4.0)
-  var pos : Pos = {x = x, y = y, direction = d}
-
-  // Update our belief based on the observations we made.
-  var sensorObservations : [[TSV(Dist(Float))]] = [
-    flObs, frObs, rlObs, rrObs, lObs, rObs
-  ]
-  loop for i in range(0, |sensorOffsets|) {
-    observeSensor(m, pos, sensorOffsets[i], sensorObservations[i])
+  assume avgSpeed ~ Uniform(0.0, maxSpeed)
+  var pos : Pos = {
+    x = posPrev.x + avgSpeed * cos(d),
+    y = posPrev.y + avgSpeed * sin(d),
+    direction = d
   }
 
   cond if not(carWithinRoomBounds(m, pos)) {
     degenerate
-  } else {}
-  resample
+  } else {
+    // Update our belief based on the observations we made.
+    var sensorObservations : [[TSV(Dist(Float))]] = [
+      flObs, frObs, rlObs, rrObs, lObs, rObs
+    ]
+    loop for i in range(0, |sensorOffsets|) {
+      observeSensor(m, pos, sensorOffsets[i], sensorObservations[i])
+    }
+  }
 
   return pos
 }
@@ -330,7 +334,7 @@ def brakeModel(m : RoomMap, posEst : TSV(Dist(Pos)), lookahead : Int) : Bool {
   // future, assuming the car drives in a certain direction at a random
   // (average) speed.
   var ts : Int = timestamp(posEst)
-  assume v ~ Uniform(0.0-0.5, 0.5)
+  assume v ~ Uniform(0.0, maxSpeed)
   var dist : Float = v * intToFloat(subInt(lookahead, ts)) / intToFloat(1s)
   assume dir ~ Gaussian(posPrev.direction, pi / 2.0)
   var x : Float = posPrev.x + dist * cos(dir)
