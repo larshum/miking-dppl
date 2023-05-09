@@ -6,4 +6,5 @@
   (names rt-stubs))
  (foreign_stubs
   (language cxx)
-  (names fifo-stubs infer-stubs)))
+  (names fifo-stubs infer-stubs)
+  (flags -std=c++14)))
