@@ -119,8 +119,6 @@ lang RtpplPrettyPrint = RtpplAst
          , pprintRtpplExpr ii model, " ", pprintRtpplInferEnd ii extra]
   | DegenerateRtpplStmt _ ->
     join [pprintIndent indent, "degenerate"]
-  | ResampleRtpplStmt _ ->
-    join [pprintIndent indent, "resample"]
   | ReadRtpplStmt {port = {v = portId}, dst = {v = dst}, proj = proj} ->
     let projStr =
       match proj with Some {v = projId} then concat "." projId

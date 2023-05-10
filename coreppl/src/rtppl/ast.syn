@@ -90,7 +90,7 @@ prod ModelDef : RtpplTop =
   "model" id:LName "(" params:RtpplTopParams ")" ":" ty:RtpplType
   "{" body:{stmts:RtpplStmt* ("return" ret:RtpplExpr)?} "}"
 prod TemplateDef : RtpplTop =
-  "template" id:LName "(" params:RtpplTopParams ")" ":" ty:RtpplType
+  "template" id:LName "(" params:RtpplTopParams ")"
   "{" body:{ports:RtpplPort* stmts:RtpplStmt*} "}"
 
 prod RtpplTopParams : RtpplTopParams =
@@ -104,7 +104,6 @@ prod Observe : RtpplStmt = "observe" e:RtpplExpr "~" d:RtpplExpr
 prod Assume : RtpplStmt = "assume" id:LName "~" d:RtpplExpr
 prod Infer : RtpplStmt = "infer" id:LName "<-" model:RtpplExpr extra:RtpplInferEnd
 prod Degenerate : RtpplStmt = "degenerate"
-prod Resample : RtpplStmt = "resample"
 prod Read : RtpplStmt = "read" port:LIdent "to" (dst:LName ("." proj:LIdent)?)
 prod Write : RtpplStmt = "write" src:RtpplExpr "to" port:LIdent ("delay" delay:RtpplExpr)?
 prod Sdelay : RtpplStmt = "sdelay" e:RtpplExpr
