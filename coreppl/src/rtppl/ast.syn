@@ -158,7 +158,7 @@ precedence {
 }
 
 prod Main : RtpplMain =
-  "main" "{" ext:RtpplExt* tasks:RtpplTask* connections:RtpplConnection* "}"
+  "network" "{" ext:RtpplExt* tasks:RtpplTask* connections:RtpplConnection* "}"
 
 prod Sensor : RtpplExt = "sensor" id:LName ":" ty:RtpplType
 prod Actuator : RtpplExt = "actuator" id:LName ":" ty:RtpplType
