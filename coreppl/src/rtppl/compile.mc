@@ -343,51 +343,79 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
     , TmType {
         ident = id, params = [], tyIdent = compileRtpplType ty,
         inexpr = uunit_, ty = _tyuk info, info = info } )
-  | FunctionDefRtpplTop {id = {v = id}, params = params, ty = ty,
-                         body = {ports = ports, stmts = stmts, ret = ret},
-                         info = info} ->
-    let compileParam = lam param.
-      match param with {id = {v = id, i = info}, ty = ty} in
-      (id, compileRtpplType ty, info)
-    in
-    let addParamTypeAnnot = lam acc. lam param.
-      match param with (_, paramTy, info) in
-      TyArrow { from = paramTy, to = acc, info = info }
-    in
-    let addParamToBody = lam acc. lam param.
-      match param with (id, paramTy, info) in
-      TmLam {
-        ident = id, tyAnnot = _tyuk info, tyIdent = paramTy, body = acc,
-        ty = TyArrow {from = paramTy, to = tyTm acc, info = info}, info = info }
-    in
-    -- NOTE(larshum, 2023-04-13): We change the name of function definitions
-    -- with ports to ensure they are distinct from anything introduced by the
-    -- runtime. Functions with ports may only be used from main, so we make
-    -- sure to escape their names there as well.
-    let escapedId =
-      if null ports then id
-      else _rtpplEscapeName id
-    in
-    let retExpr =
-      match ret with Some e then compileRtpplExpr e
-      else TmRecord {bindings = mapEmpty cmpSID, ty = _tyunit info, info = info}
-    in
-    let params =
-      let params =
-        if null params then [(nameNoSym "", _tyunit info, info)]
-        else map compileParam params
-      in
-      reverse params
-    in
+  | FunctionDefRtpplTop {
+      id = {v = id}, params = params, ty = ty,
+      body = {stmts = stmts, ret = ret}, info = info} ->
+    let params = compileParams params in
     let tyAnnot = foldl addParamTypeAnnot (compileRtpplType ty) params in
+    let retExpr = compileRtpplReturnExpr info ret in
+    let body = compileRtpplStmts env retExpr stmts in
+    ( env
+    , TmLet {
+        ident = id, tyAnnot = tyAnnot, tyBody = tyAnnot,
+        body = foldl addParamToBody body params, inexpr = uunit_,
+        ty = _tyuk info, info = info } )
+  | ModelDefRtpplTop {
+      id = {v = id}, params = params, ty = ty,
+      body = {stmts = stmts, ret = ret}, info = info} ->
+    let params = compileParams params in
+    let tyAnnot = foldl addParamTypeAnnot (compileRtpplType ty) params in
+    let retExpr = compileRtpplReturnExpr info ret in
+    let body = compileRtpplStmts env retExpr stmts in
+    ( env
+    , TmLet {
+        ident = id, tyAnnot = tyAnnot, tyBody = tyAnnot,
+        body = foldl addParamToBody body params, inexpr = uunit_,
+        ty = _tyuk info, info = info } )
+  | TemplateDefRtpplTop {
+      id = {v = id}, params = params,
+      body = {ports = ports, stmts = stmts}, info = info} ->
+    let params = compileParams params in
+    let ty = UnitRtpplType {info = info} in
+    let tyAnnot = foldl addParamTypeAnnot (compileRtpplType ty) params in
+
+    -- NOTE(larshum, 2023-04-13): We change the name of template definitions
+    -- to ensure they are distinct from anything introduced by the runtime.
+    -- Template functions may only be used from main, so we make sure ot escape
+    -- their names there as well.
+    let escapedId = _rtpplEscapeName id in
     let env = {env with topId = id} in
     let env = foldl buildPortTypesMap env ports in
-    let body = compileRtpplStmts env retExpr stmts in
+    let body = bindall_ (map (compileRtpplStmt env) stmts) in
     ( env
     , TmLet {
         ident = escapedId, tyAnnot = tyAnnot, tyBody = tyAnnot,
         body = foldl addParamToBody body params, inexpr = uunit_,
         ty = _tyuk info, info = info } )
+
+  sem compileRtpplReturnExpr : Info -> Option RtpplExpr -> Expr
+  sem compileRtpplReturnExpr info =
+  | Some e -> compileRtpplExpr e
+  | None _ -> TmRecord {bindings = mapEmpty cmpSID, ty = _tyunit info, info = info}
+
+  sem compileParams : RtpplTopParams -> [(Name, Type, Info)]
+  sem compileParams =
+  | RtpplTopParams {params = params, info = info} ->
+    if null params then
+      [(nameNoSym "", _tyunit info, info)]
+    else
+      reverse (map compileParam params)
+
+  sem compileParam =
+  | {id = {v = id, i = info}, ty = ty} ->
+    (id, compileRtpplType ty, info)
+
+  sem addParamTypeAnnot : Type -> (Name, Type, Info) -> Type
+  sem addParamTypeAnnot acc =
+  | (_, paramTy, info) ->
+    TyArrow {from = paramTy, to = acc, info = info}
+
+  sem addParamToBody : Expr -> (Name, Type, Info) -> Expr
+  sem addParamToBody acc =
+  | (id, paramTy, info) ->
+    TmLam {
+      ident = id, tyAnnot = _tyuk info, tyIdent = paramTy, body = acc,
+      ty = TyArrow {from = paramTy, to = tyTm acc, info = info}, info = info }
 
   sem buildPortTypesMap : RtpplTopEnv -> RtpplPort -> RtpplTopEnv
   sem buildPortTypesMap env =
@@ -1257,7 +1285,7 @@ lang RtpplCompile =
 
   sem collectPortsPerTop : Map Name [PortData] -> RtpplTop -> Map Name [PortData]
   sem collectPortsPerTop portMap =
-  | FunctionDefRtpplTop {id = {v = id}, body = {ports = ![] & ports}} ->
+  | TemplateDefRtpplTop {id = {v = id}, body = {ports = ![] & ports}} ->
     mapInsert id (map toPortData ports) portMap
   | _ ->
     portMap

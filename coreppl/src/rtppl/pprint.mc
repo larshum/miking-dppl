@@ -16,16 +16,32 @@ lang RtpplPrettyPrint = RtpplAst
     join ["type ", nameGetStr id, " = ", pprintRtpplType ty]
   | FunctionDefRtpplTop {
       id = {v = id}, params = params, ty = ty,
-      body = {ports = ports, stmts = stmts, ret = ret}} ->
-    let retStr =
-      match ret with Some e then concat "  return " (pprintRtpplExpr 2 e)
-      else ""
-    in
+      body = {stmts = stmts, ret = ret}} ->
+    let retStr = pprintRtpplReturn ret in
     let paramsStr = pprintRtpplParams params in
-    let ports = strJoin "\n" (map pprintRtpplPort ports) in
     let stmtStrs = strJoin "\n" (map (pprintRtpplStmt 2) stmts) in
     join ["def ", nameGetStr id, "(", paramsStr, ") : ", pprintRtpplType ty,
-          " {\n", ports, "\n", stmtStrs, "\n", retStr, "\n}"]
+          " {\n", stmtStrs, "\n", retStr, "\n}"]
+  | ModelDefRtpplTop {
+      id = {v = id}, params = params, ty = ty,
+      body = {stmts = stmts, ret = ret}} ->
+    let retStr = pprintRtpplReturn ret in
+    let paramsStr = pprintRtpplParams params in
+    let stmtStrs = strJoin "\n" (map (pprintRtpplStmt 2) stmts) in
+    join ["model ", nameGetStr id, "(", paramsStr, ") : ", pprintRtpplType ty,
+          " {\n", stmtStrs, "\n", retStr, "\n}"]
+  | TemplateDefRtpplTop {
+      id = {v = id}, params = params, body = {ports = ports, stmts = stmts}} ->
+    let paramsStr = pprintRtpplParams params in
+    let portsStr = strJoin "\n" (map pprintRtpplPort ports) in
+    let stmtStrs = strJoin "\n" (map (pprintRtpplStmt 2) stmts) in
+    join ["template ", nameGetStr id, "(", paramsStr, ") {\n",
+          portsStr, "\n", stmtStrs, "\n}"]
+
+  sem pprintRtpplReturn : Option RtpplExpr -> String
+  sem pprintRtpplReturn =
+  | Some e -> concat "  return " (pprintRtpplExpr 2 e)
+  | None _ -> ""
 
   sem pprintRtpplPort : RtpplPort -> String
   sem pprintRtpplPort =
@@ -34,15 +50,14 @@ lang RtpplPrettyPrint = RtpplAst
   | OutputRtpplPort {id = {v = id}, ty = ty} ->
     join ["  output ", id, " : ", pprintRtpplType ty]
 
-  sem pprintRtpplParams : [{id : {i : Info, v : Name}, ty : RtpplType}] -> String
+  sem pprintRtpplParams : RtpplTopParams -> String
   sem pprintRtpplParams =
-  | [{id = {v = id}, ty = ty}] ++ params ->
-    let tailstr =
-      if null params then ""
-      else concat ", " (pprintRtpplParams params)
+  | RtpplTopParams {params = params} ->
+    let pprintParam = lam param.
+      match param with {id = {v = id}, ty = ty} in
+      join [nameGetStr id, " : ", pprintRtpplType ty]
     in
-    join [nameGetStr id, " : ", pprintRtpplType ty, tailstr]
-  | [] -> ""
+    strJoin ", " (map pprintParam params)
 
   sem pprintRtpplMain : RtpplMain -> String
   sem pprintRtpplMain =

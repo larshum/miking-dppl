@@ -6,6 +6,7 @@ start RtpplProgram
 
 type RtpplProgram
 type RtpplTop
+type RtpplTopParams
 type RtpplStmt
 type RtpplLoopStmt
 type RtpplStmtNoIdent
@@ -83,8 +84,17 @@ prod Program : RtpplProgram = tops:RtpplTop* main:RtpplMain
 prod Constant : RtpplTop = "const" id:LName ":" ty:RtpplType "=" e:RtpplExpr
 prod TypeAlias : RtpplTop = "type" id:UName "=" ty:RtpplType
 prod FunctionDef : RtpplTop =
-  "def" id:LName "(" (params:{id:LName ":" ty:RtpplType} ("," params:{id:LName ":" ty:RtpplType})*)? ")"
-  ":" ty:RtpplType "{" body:{ports:RtpplPort* stmts:RtpplStmt* ("return" ret:RtpplExpr)?} "}"
+  "def" id:LName "(" params:RtpplTopParams ")" ":" ty:RtpplType
+  "{" body:{stmts:RtpplStmt* ("return" ret:RtpplExpr)?} "}"
+prod ModelDef : RtpplTop =
+  "model" id:LName "(" params:RtpplTopParams ")" ":" ty:RtpplType
+  "{" body:{stmts:RtpplStmt* ("return" ret:RtpplExpr)?} "}"
+prod TemplateDef : RtpplTop =
+  "template" id:LName "(" params:RtpplTopParams ")" ":" ty:RtpplType
+  "{" body:{ports:RtpplPort* stmts:RtpplStmt*} "}"
+
+prod RtpplTopParams : RtpplTopParams =
+  (params:{id:LName ":" ty:RtpplType} ("," params:{id:LName ":" ty:RtpplType})*)?
 
 prod Input : RtpplPort = "input" id:LIdent ":" ty:RtpplType
 prod Output : RtpplPort = "output" id:LIdent ":" ty:RtpplType

@@ -72,7 +72,7 @@ lang RtpplValidateNetwork = RtpplAst
 
   sem collectDeclaredPorts : PortDecls -> RtpplTop -> PortDecls
   sem collectDeclaredPorts acc =
-  | FunctionDefRtpplTop {id = {v = id}, body = {ports = declaredPorts}} ->
+  | TemplateDefRtpplTop {id = {v = id}, body = {ports = declaredPorts}} ->
     let emptyPortConfig = mapEmpty cmpString in
     let functionDecls = foldl addPortToConfig emptyPortConfig declaredPorts in
     {acc with decls = mapInsert id functionDecls acc.decls}
@@ -250,7 +250,7 @@ lang RtpplValidateNames = RtpplAst
 
   sem distinctPortNames : RtpplTop -> ()
   sem distinctPortNames =
-  | FunctionDefRtpplTop {id = {v = id}, body = {ports = ports}} ->
+  | TemplateDefRtpplTop {id = {v = id}, body = {ports = ports}} ->
     let addUniqueName = lam acc. lam port.
       match portIdAndInfo port with (portId, info) in
       match mapLookup portId acc with Some prevInfo then
