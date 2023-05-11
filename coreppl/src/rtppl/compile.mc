@@ -781,16 +781,22 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
       ty = _tyuk info, info = info }
   | DistSamplesRtpplExpr {e = e, info = info} ->
     let s = nameNoSym "s" in
-    let binds = mapFromSeq cmpSID [
+    let w = nameNoSym "w" in
+    let patBinds = mapFromSeq cmpSID [
       (stringToSid "0", PatNamed {ident = PName s, ty = _tyuk info, info = info}),
-      (stringToSid "1", PatNamed {ident = PWildcard (), ty = _tyuk info, info = info})
+      (stringToSid "1", PatNamed {ident = PName w, ty = _tyuk info, info = info})
+    ] in
+    let binds = mapFromSeq cmpSID [
+      (stringToSid "s", _var info s),
+      (stringToSid "w", _var info w)
     ] in
     TmMatch {
       target = TmApp {
         lhs = TmConst {val = CDistEmpiricalSamples (), ty = _tyuk info, info = info},
         rhs = compileRtpplExpr e, ty = _tyuk info, info = info},
-      pat = PatRecord {bindings = binds, ty = _tyuk info, info = info},
-      thn = _var info s, els = TmNever {ty = _tyuk info, info = info},
+      pat = PatRecord {bindings = patBinds, ty = _tyuk info, info = info},
+      thn = TmRecord {bindings = binds, ty = _tyuk info, info = info},
+      els = TmNever {ty = _tyuk info, info = info},
       ty = _tyuk info, info = info}
 
   sem _constructApp : Info -> Const -> RtpplExpr -> RtpplExpr -> Expr
