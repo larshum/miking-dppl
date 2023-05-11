@@ -18,10 +18,6 @@ extern "C" {
     struct timespec ts;
     ts.tv_sec = Long_val(Field(deadline, 0));
     ts.tv_nsec = Long_val(Field(deadline, 1));
-    // TODO: figure out why this is occasionally needed...
-    if (Is_block(Field(deadline, 0))) {
-      ts.tv_sec = Long_val(Field(Field(deadline, 0), 0));
-    }
     clock_nanosleep_cputime(&ts);
     kill(getpid(), SIGUSR1);
   }
