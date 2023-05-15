@@ -106,8 +106,12 @@ lang RtpplPrettyPrint = RtpplAst
   sem pprintRtpplStmt : Int -> RtpplStmt -> String
   sem pprintRtpplStmt indent =
   | BindingRtpplStmt {id = {v = id}, ty = ty, e = e} ->
-    join [pprintIndent indent, "var ", nameGetStr id, " : ",
-          pprintRtpplType ty, " = ", pprintRtpplExpr indent e]
+    let tyStr =
+      match ty with Some ty then concat " : " (pprintRtpplType ty)
+      else ""
+    in
+    join [pprintIndent indent, "var ", nameGetStr id, "",
+          tyStr, " = ", pprintRtpplExpr indent e]
   | ObserveRtpplStmt {e = e, d = d} ->
     let ii = pprintIndentIncrement indent in
     join [pprintIndent indent, "observe ", pprintRtpplExpr ii e, " ~ ", pprintRtpplExpr ii d]

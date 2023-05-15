@@ -435,7 +435,10 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
   sem compileRtpplStmt : RtpplTopEnv -> RtpplStmt -> Expr
   sem compileRtpplStmt env =
   | BindingRtpplStmt {id = {v = id}, ty = ty, e = e, info = info} ->
-    let tyBody = compileRtpplType ty in
+    let tyBody =
+      match ty with Some ty then compileRtpplType ty
+      else TyUnknown {info = info}
+    in
     let body = compileRtpplExpr e in
     TmLet {
       ident = id, tyAnnot = _tyuk info, tyBody = tyBody, body = body,
