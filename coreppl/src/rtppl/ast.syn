@@ -155,6 +155,7 @@ precedence {
   Mul Div;
   Add Sub;
   Lt Gt;
+  Eq Neq;
   And Or;
 }
 
