@@ -787,6 +787,10 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
     TmDist {
       dist = DBernoulli {p = compileRtpplExpr p},
       ty = _tyuk info, info = info }
+  | GammaDistRtpplExpr {k = k, theta = theta, info = info} ->
+    TmDist {
+      dist = DGamma {k = compileRtpplExpr k, theta = compileRtpplExpr theta},
+      ty = _tyuk info, info = info }
   | DistSamplesRtpplExpr {e = e, info = info} ->
     let s = nameNoSym "s" in
     let w = nameNoSym "w" in

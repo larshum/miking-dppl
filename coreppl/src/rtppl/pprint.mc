@@ -237,6 +237,9 @@ lang RtpplPrettyPrint = RtpplAst
   | UniformDistRtpplExpr {lo = lo, hi = hi} ->
     let ii = pprintIndentIncrement indent in
     join ["Uniform(", pprintRtpplExpr ii lo, ", ", pprintRtpplExpr ii hi, ")"]
+  | GammaDistRtpplExpr {k = k, theta = theta} ->
+    let ii = pprintIndentIncrement indent in
+    join ["Gamma(", pprintRtpplExpr ii k, ", ", pprintRtpplExpr ii theta, ")"]
   | DistSamplesRtpplExpr {e = e} ->
     concat "samples " (pprintRtpplExpr indent e)
 

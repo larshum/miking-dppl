@@ -139,6 +139,7 @@ prod DistSamples : RtpplExpr = "samples" e:RtpplExpr
 prod GaussianDist : RtpplExpr = "Gaussian" "(" mu:RtpplExpr "," sigma:RtpplExpr ")"
 prod UniformDist : RtpplExpr = "Uniform" "(" lo:RtpplExpr "," hi:RtpplExpr ")"
 prod BernoulliDist : RtpplExpr = "Bernoulli" "(" p:RtpplExpr ")"
+prod GammaDist : RtpplExpr = "Gamma" "(" k:RtpplExpr "," theta:RtpplExpr ")"
 
 infix left Add : RtpplExpr = "+"
 infix left Sub : RtpplExpr = "-"
