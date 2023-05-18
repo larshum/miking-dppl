@@ -14,18 +14,18 @@
 #include "shared.h"
 
 extern "C" {
-  void raise_signal_after_deadline(value deadline) {
-    struct timespec ts;
-    ts.tv_sec = Long_val(Field(deadline, 0));
-    ts.tv_nsec = Long_val(Field(deadline, 1));
-    clock_nanosleep_cputime(&ts);
+  void raise_signal_after_deadline(struct timespec *deadline) {
+    clock_nanosleep_cputime(deadline);
     kill(getpid(), SIGUSR1);
   }
 
   value rtppl_batched_inference_stub(value interruptible_model, value deadline) {
     CAMLparam2(interruptible_model, deadline);
     CAMLlocal1(out);
-    std::thread t(raise_signal_after_deadline, deadline);
+    struct timespec ts;
+    ts.tv_sec = Long_val(Field(deadline, 0));
+    ts.tv_nsec = Long_val(Field(deadline, 1));
+    std::thread t(raise_signal_after_deadline, &ts);
     t.detach();
     out = caml_callback(interruptible_model, Val_int(0));
     CAMLreturn(out);
