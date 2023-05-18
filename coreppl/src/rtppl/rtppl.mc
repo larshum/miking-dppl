@@ -101,7 +101,7 @@ lang Rtppl =
   | name ->
     let path = optJoinPath options.outputPath name in
     let ifPipeExists = join ["[ -p ", path, " ]"] in
-    let mkfifo = concat "mkfifo " path in
+    let mkfifo = concat "touch " path in
     match sysRunCommand [ifPipeExists, "||", mkfifo] "" "."
     with {stderr = stderr, returncode = rc} in
     if eqi rc 0 then ()

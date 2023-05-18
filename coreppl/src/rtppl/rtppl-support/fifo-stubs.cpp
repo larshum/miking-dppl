@@ -26,11 +26,7 @@ int64_t read_message_size(int fd) {
   int64_t count = 0;
   while (count < sizeof(int64_t)) {
     int bytes = read(fd, (void*)&buffer[count], sizeof(int64_t)-count);
-    if (bytes < 0) {
-      if (count > 0 && errno == EAGAIN) {
-        caml_process_pending_actions();
-        continue;
-      }
+    if (bytes <= 0) {
       return -1;
     }
     count += bytes;
@@ -50,10 +46,6 @@ int64_t read_message(int fd, payload& p) {
   while (count < p.size) {
     int bytes_read = read(fd, (void*)&p.data[count], p.size - count);
     if (bytes_read <= 0) {
-      if (errno == EAGAIN) {
-        caml_process_pending_actions();
-        continue;
-      }
       fprintf(stderr, "Error reading message: %s\n", strerror(errno));
       exit(1);
     }
@@ -77,11 +69,7 @@ bool write_message_size(int fd, int64_t sz) {
   int64_t count = 0;
   while (count < sizeof(int64_t)) {
     int bytes = write(fd, (void*)&buffer[count], sizeof(int64_t)-count);
-    if (bytes < 0) {
-      if (errno == EAGAIN) {
-        caml_process_pending_actions();
-        continue;
-      }
+    if (bytes <= 0) {
       return false;
     }
     count += bytes;
@@ -99,15 +87,12 @@ void write_message(int fd, const payload& p) {
   while (count < p.size) {
     int bytes_written = write(fd, (void*)&p.data[count], p.size - count);
     if (bytes_written <= 0) {
-      if (errno == EAGAIN) {
-        caml_process_pending_actions();
-        continue;
-      }
       fprintf(stderr, "Error writing message: %s\n", strerror(errno));
       exit(1);
     }
     count += bytes_written;
   }
+  fsync(fd);
 }
 
 inline value to_timespec_value(int64_t ts) {
