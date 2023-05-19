@@ -149,14 +149,15 @@ infix Eq : RtpplExpr = "=="
 infix Neq : RtpplExpr = "!="
 infix Lt : RtpplExpr = "<"
 infix Gt : RtpplExpr = ">"
+infix Leq : RtpplExpr = "<="
+infix Geq : RtpplExpr = ">="
 infix left And : RtpplExpr = "&&"
 infix left Or : RtpplExpr = "||"
 
 precedence {
   Mul Div;
   Add Sub;
-  Lt Gt;
-  Eq Neq;
+  Eq Neq Lt Gt Geq Leq;
   And Or;
 }
 

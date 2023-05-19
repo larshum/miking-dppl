@@ -765,6 +765,10 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
     _constructApp info (CLtf ()) l r
   | GtRtpplExpr {left = l, right = r, info = info} ->
     _constructApp info (CGtf ()) l r
+  | LeqRtpplExpr {left = l, right = r, info = info} ->
+    _constructApp info (CLeqf ()) l r
+  | GeqRtpplExpr {left = l, right = r, info = info} ->
+    _constructApp info (CGeqf ()) l r
   | AndRtpplExpr {left = l, right = r, info = info} ->
     TmMatch {
       target = compileRtpplExpr l,

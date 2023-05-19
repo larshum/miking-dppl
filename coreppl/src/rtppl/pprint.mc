@@ -214,6 +214,10 @@ lang RtpplPrettyPrint = RtpplAst
     join [pprintRtpplExpr indent l, " < ", pprintRtpplExpr indent r]
   | GtRtpplExpr {left = l, right = r} ->
     join [pprintRtpplExpr indent l, " > ", pprintRtpplExpr indent r]
+  | LeqRtpplExpr {left = l, right = r} ->
+    join [pprintRtpplExpr indent l, " <= ", pprintRtpplExpr indent r]
+  | GeqRtpplExpr {left = l, right = r} ->
+    join [pprintRtpplExpr indent l, " >= ", pprintRtpplExpr indent r]
   | AndRtpplExpr {left = l, right = r} ->
     join [pprintRtpplExpr indent l, " && ", pprintRtpplExpr indent r]
   | OrRtpplExpr {left = l, right = r} ->
