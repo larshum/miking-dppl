@@ -1,4 +1,5 @@
 include "bool.mc"
+include "common.mc"
 include "math.mc"
 include "string.mc"
 include "ext/rtppl-ext.mc"
@@ -104,9 +105,9 @@ let sdelay : (() -> ()) -> (() -> ()) -> Int -> Int =
   updateInputs ();
   overrun
 
-let rtpplInferRunner =
+let rtpplBatchedInferRunner =
   lam inferModel. lam distToSamples. lam samplesToDist. lam distNormConst.
-  lam deadline.
+  lam deadline. lam printTime.
   let t0 = getProcessCpuTime () in
   let deadlineTs = addTimespec t0 (nanosToTimespec deadline) in
   let model = lam.
@@ -120,7 +121,23 @@ let rtpplInferRunner =
   let samples =
     externalBatchedInference (unsafeCoerce model) deadlineTs
   in
-  samplesToDist (join (unsafeCoerce samples))
+  let result = samplesToDist (join (unsafeCoerce samples)) in
+  (if printTime then
+    let t1 = getProcessCpuTime () in
+    printLn (int2string (timespecToNanos (diffTimespec t1 t0)))
+  else ());
+  result
+
+let rtpplFixedInferRunner =
+  lam inferModel. lam printTime.
+  let t0 = getProcessCpuTime () in
+  let result = inferModel () in
+  (if printTime then
+    let t1 = getProcessCpuTime () in
+    printLn (int2string (timespecToNanos (diffTimespec t1 t0)))
+  else ());
+  result
+
 
 let openFileDescriptor : String -> Int = lam file.
   externalOpenFileNonblocking file

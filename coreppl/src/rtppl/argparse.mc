@@ -4,6 +4,7 @@ type RtpplOptions = {
   debugParse : Bool,
   debugCompileDppl : Bool,
   debugCompileMExpr : Bool,
+  printInferTime : Bool,
   outputPath : String,
   file : String,
   particlesPerBatch : Int
@@ -13,6 +14,7 @@ let rtpplDefaultOptions = {
   debugParse = false,
   debugCompileDppl = false,
   debugCompileMExpr = false,
+  printInferTime = false,
   outputPath = "",
   file = "",
   particlesPerBatch = 100
@@ -28,6 +30,9 @@ let optionsConfig = [
   ( [("--debug-compile-mexpr", "", "")]
   , "Writes the MExpr AST of each task to a file before running the MExpr compiler"
   , lam p. {p.options with debugCompileMExpr = true} ),
+  ( [("--print-infer-time", "", "")]
+  , "Prints the CPU execution time after each infer (in seconds)"
+  , lam p. {p.options with printInferTime = true} ),
   ( [("--out-path", " ", "<path>")]
   , "Sets the output path at which the compilation results are to be placed"
   , lam p. {p.options with outputPath = argToString p} ),

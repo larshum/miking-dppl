@@ -38,7 +38,8 @@ lang RtpplCompileBase =
     writeDistFloat : Name,
     writeDistFloatRecord : Name,
     tsv : Name,
-    inferRunner : Name,
+    batchedInferRunner : Name,
+    fixedInferRunner : Name,
     init : Name
   }
 
@@ -87,7 +88,7 @@ lang RtpplCompileBase =
         "rtpplReadFloatPort", "rtpplReadDistFloatPort",
         "rtpplReadDistFloatRecordPort", "rtpplWriteFloatPort",
         "rtpplWriteDistFloatPort", "rtpplWriteDistFloatRecordPort", "tsv",
-        "rtpplInferRunner", "rtpplRuntimeInit"
+        "rtpplBatchedInferRunner", "rtpplFixedInferRunner", "rtpplRuntimeInit"
       ] in
       let rt = readRuntime () in
       match optionMapM identity (findNamesOfStrings strs rt)
@@ -97,7 +98,8 @@ lang RtpplCompileBase =
           , readFloat = get ids 3, readDistFloat = get ids 4
           , readDistFloatRecord = get ids 5, writeFloat = get ids 6
           , writeDistFloat = get ids 7, writeDistFloatRecord = get ids 8
-          , tsv = get ids 9, inferRunner = get ids 10, init = get ids 11 }
+          , tsv = get ids 9, batchedInferRunner = get ids 10
+          , fixedInferRunner = get ids 11, init = get ids 12 }
         in
         modref rtIdRef (Some result);
         result
@@ -500,6 +502,10 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
         ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
+    let printInferTime = TmConst {
+      val = CBool {val = env.options.printInferTime},
+      ty = _tyuk info, info = info
+    } in
     let distBind = TmLet {
       ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
       body = TmApp {
@@ -507,13 +513,15 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
           lhs = TmApp {
             lhs = TmApp {
               lhs = TmApp {
-                lhs = _var info (getRuntimeIds ()).inferRunner,
-                rhs = _var info (nameNoSym "inferModel"),
-                ty = _tyuk info, info = info},
-              rhs = _var info (nameNoSym "distToSamples"), ty = _tyuk info, info = info},
-            rhs = _var info (nameNoSym "samplesToDist"), ty = _tyuk info, info = info},
-          rhs = _var info (nameNoSym "distNormConst"), ty = _tyuk info, info = info},
-        rhs = compileRtpplExpr t, ty = _tyuk info, info = info},
+                lhs = TmApp {
+                  lhs = _var info (getRuntimeIds ()).batchedInferRunner,
+                  rhs = _var info (nameNoSym "inferModel"),
+                  ty = _tyuk info, info = info},
+                rhs = _var info (nameNoSym "distToSamples"), ty = _tyuk info, info = info},
+              rhs = _var info (nameNoSym "samplesToDist"), ty = _tyuk info, info = info},
+            rhs = _var info (nameNoSym "distNormConst"), ty = _tyuk info, info = info},
+          rhs = compileRtpplExpr t, ty = _tyuk info, info = info},
+        rhs = printInferTime, ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
     bindall_
@@ -521,15 +529,33 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
       , distNormConstBind, distBind ]
   | InferRtpplStmt {id = {v = id}, model = model, info = info,
                     extra = InferFixedRtpplInferEnd {p = p}} ->
-    TmLet {
-      ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
-      body = TmInfer {
-        method = BPF {particles = compileRtpplExpr p},
-        model = TmLam {
-          ident = nameNoSym "", tyAnnot = _tyuk info, tyIdent = _tyuk info,
-          body = compileRtpplExpr model, ty = _tyuk info, info = info},
+    let inferModelBind = TmLet {
+      ident = nameNoSym "inferModel", tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmLam {
+        ident = nameNoSym "", tyAnnot = _tyuk info, tyIdent = _tyuk info,
+        body = TmInfer {
+          method = BPF {particles = compileRtpplExpr p},
+          model = TmLam {
+            ident = nameNoSym "", tyAnnot = _tyuk info, tyIdent = _tyuk info,
+            body = compileRtpplExpr model, ty = _tyuk info, info = info },
+          ty = _tyuk info, info = info},
         ty = _tyuk info, info = info},
-      inexpr = uunit_, ty = _tyuk info, info = info}
+      inexpr = uunit_, ty = _tyuk info, info = info
+    } in
+    let printInferTime = TmConst {
+      val = CBool {val = env.options.printInferTime},
+      ty = _tyuk info, info = info
+    } in
+    let distBind = TmLet {
+      ident = id, tyAnnot = _tyuk info, tyBody = _tyuk info,
+      body = TmApp {
+        lhs = TmApp {
+          lhs = _var info (getRuntimeIds ()).fixedInferRunner,
+          rhs = _var info (nameNoSym "inferModel"), ty = _tyuk info, info = info},
+        rhs = printInferTime, ty = _tyuk info, info = info},
+      inexpr = uunit_, ty = _tyuk info, info = info
+    } in
+    bind_ inferModelBind distBind
   | DegenerateRtpplStmt {info = info} ->
     let neginf = TmApp {
       lhs = TmApp {
