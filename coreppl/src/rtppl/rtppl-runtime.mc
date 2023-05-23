@@ -124,7 +124,7 @@ let rtpplBatchedInferRunner =
   let result = samplesToDist (join (unsafeCoerce samples)) in
   (if printTime then
     let t1 = getProcessCpuTime () in
-    printLn (int2string (timespecToNanos (diffTimespec t1 t0)))
+    printLn (join [int2string (timespecToNanos (diffTimespec t1 t0)), " ", int2string (length samples)])
   else ());
   result
 

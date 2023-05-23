@@ -502,8 +502,8 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
         ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
-    let printInferTime = TmConst {
-      val = CBool {val = env.options.printInferTime},
+    let printInfer = TmConst {
+      val = CBool {val = env.options.printInfer},
       ty = _tyuk info, info = info
     } in
     let distBind = TmLet {
@@ -521,7 +521,7 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
               rhs = _var info (nameNoSym "samplesToDist"), ty = _tyuk info, info = info},
             rhs = _var info (nameNoSym "distNormConst"), ty = _tyuk info, info = info},
           rhs = compileRtpplExpr t, ty = _tyuk info, info = info},
-        rhs = printInferTime, ty = _tyuk info, info = info},
+        rhs = printInfer, ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
     bindall_
@@ -542,8 +542,8 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
         ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
-    let printInferTime = TmConst {
-      val = CBool {val = env.options.printInferTime},
+    let printInfer = TmConst {
+      val = CBool {val = env.options.printInfer},
       ty = _tyuk info, info = info
     } in
     let distBind = TmLet {
@@ -552,7 +552,7 @@ lang RtpplDPPLCompile = RtpplCompileExprExtension + RtpplCompileType
         lhs = TmApp {
           lhs = _var info (getRuntimeIds ()).fixedInferRunner,
           rhs = _var info (nameNoSym "inferModel"), ty = _tyuk info, info = info},
-        rhs = printInferTime, ty = _tyuk info, info = info},
+        rhs = printInfer, ty = _tyuk info, info = info},
       inexpr = uunit_, ty = _tyuk info, info = info
     } in
     bind_ inferModelBind distBind
