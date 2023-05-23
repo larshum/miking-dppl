@@ -30,6 +30,12 @@ lang RtpplJson = RtpplAst
     tasks : [Name]
   }
 
+  sem optJoinPath : String -> String -> String
+  sem optJoinPath path =
+  | file ->
+    if null path then file
+    else join [path, "/", file]
+
   sem collectSensorOrActuatorName : RtpplNames -> RtpplExt -> RtpplNames
   sem collectSensorOrActuatorName acc =
   | SensorRtpplExt {id = {v = id}} ->
@@ -73,8 +79,8 @@ lang RtpplJson = RtpplAst
     ] in
     JsonObject (mapFromSeq cmpString topMappings)
 
-  sem generateJsonNetworkSpecification : RtpplProgram -> ()
-  sem generateJsonNetworkSpecification =
+  sem generateJsonNetworkSpecification : RtpplOptions -> RtpplProgram -> ()
+  sem generateJsonNetworkSpecification options =
   | ProgramRtpplProgram {
       main = MainRtpplMain {ext = ext, tasks = tasks, connections = connections}
     } ->
@@ -82,19 +88,14 @@ lang RtpplJson = RtpplAst
     let names = foldl collectSensorOrActuatorName names ext in
     let names = foldl collectTaskName names tasks in
     let json = makeJsonSpecification names connections in
-    writeFile "network.json" (json2string json)
+    let path = optJoinPath options.outputPath "network.json" in
+    writeFile path (json2string json)
 end
 
 lang Rtppl =
   RtpplCompile + RtpplValidate + RtpplPrettyPrint + RtpplJson +
   MExprCompile + DPPLParser +
   MExprLowerNestedPatterns + MExprTypeCheck + MCoreCompileLang
-
-  sem optJoinPath : String -> String -> String
-  sem optJoinPath path =
-  | file ->
-    if null path then file
-    else join [path, "/", file]
 
   sem createPipe : RtpplOptions -> String -> ()
   sem createPipe options =
@@ -152,7 +153,7 @@ lang Rtppl =
   sem buildRtppl options program =
   | {tasks = tasks, ports = ports} ->
     iter (createPipe options) ports;
-    generateJsonNetworkSpecification program;
+    generateJsonNetworkSpecification options program;
     mapFoldWithKey (lam. lam k. lam v. buildTaskExecutable options k v) () tasks
 end
 
