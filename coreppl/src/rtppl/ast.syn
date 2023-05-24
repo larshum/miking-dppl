@@ -101,7 +101,7 @@ prod Output : RtpplPort = "output" id:LIdent ":" ty:RtpplType
 
 prod Binding : RtpplStmt = "var" id:LName (":" ty:RtpplType)? "=" e:RtpplExpr
 prod Observe : RtpplStmt = "observe" e:RtpplExpr "~" d:RtpplExpr
-prod Assume : RtpplStmt = "assume" id:LName "~" d:RtpplExpr
+prod Assume : RtpplStmt = "sample" id:LName "~" d:RtpplExpr
 prod Infer : RtpplStmt = "infer" model:RtpplExpr extra:RtpplInferEnd "to" id:LName
 prod Degenerate : RtpplStmt = "degenerate"
 prod Resample : RtpplStmt = "resample"
@@ -162,7 +162,7 @@ precedence {
 }
 
 prod Main : RtpplMain =
-  "network" "{" ext:RtpplExt* tasks:RtpplTask* connections:RtpplConnection* "}"
+  "system" "{" ext:RtpplExt* tasks:RtpplTask* connections:RtpplConnection* "}"
 
 prod Sensor : RtpplExt = "sensor" id:LName ":" ty:RtpplType
 prod Actuator : RtpplExt = "actuator" id:LName ":" ty:RtpplType
