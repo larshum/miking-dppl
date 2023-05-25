@@ -63,6 +63,8 @@ let cmpTimespec : Timespec -> Timespec -> Int =
 let monoLogicalTime : Ref Timespec = ref (0,0)
 let wallLogicalTime : Ref Timespec = ref (0,0)
 
+let lastSdelay : Ref Timespec = ref (0,0)
+
 -- Delays execution by a given amount of delay, in milliseconds, given a
 -- reference containing the start time of the current timing point. The result
 -- is an integer denoting the number of milliseconds of overrun.
@@ -83,6 +85,9 @@ let delayBy : Int -> Int = lam delay.
   modref monoLogicalTime waitTime;
   modref wallLogicalTime (addTimespec (deref wallLogicalTime) intervalTime);
   setPriority oldPriority;
+  let t1 = getProcessCpuTime () in
+  printLn (join ["sdelay ", int2string (timespecToNanos (diffTimespec t1 (deref lastSdelay)))]);
+  modref lastSdelay t1;
   overrun
 
 type TSV a = (Timespec, a)
