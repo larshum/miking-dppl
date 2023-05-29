@@ -164,8 +164,7 @@ lang RuntimeDistEmpirical = RuntimeDistBase
   | DistEmpirical t -> error "Log observe not supported for empirical distribution"
 end
 
-lang RuntimeDist =
-  RuntimeDistElementary + RuntimeDistEmpirical
+lang RuntimeDist = RuntimeDistElementary + RuntimeDistEmpirical
 end
 
 -- We include the below definitions to produce non-mangled functions, which we
