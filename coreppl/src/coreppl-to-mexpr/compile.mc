@@ -1,5 +1,4 @@
 include "mexpr/ast-builder.mc"
-include "mexpr/demote-recursive.mc"
 include "mexpr/externals.mc"
 include "mexpr/boot-parser.mc"
 include "mexpr/type.mc"
@@ -61,7 +60,7 @@ end
 lang MExprCompile =
   MExprPPL + Resample + Externals + DPPLParser + DPPLExtract + LoadRuntime +
   Transformation + DPPLKeywordReplace + DPPLTransformDist + MExprSubstitute +
-  MExprANFAll + MExprDemoteRecursive + CPPLBackcompat
+  MExprANFAll + CPPLBackcompat
 
   sem transformModelAst : Options -> Expr -> Expr
   sem transformModelAst options =
