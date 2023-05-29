@@ -61,16 +61,16 @@ lang CPPLBackcompat = LoadRuntime
 
         ulet_ "" (
             match options.method with
-                "mexpr-is-lw"
-              | "mexpr-smc-bpf"
-              | "mexpr-smc-apf"
+                "is-lw"
+              | "smc-bpf"
+              | "smc-apf"
             then
               app_ (var_ "printNormConst") (var_ "d")
             else match options.method with
-                "mexpr-mcmc-naive"
-              | "mexpr-mcmc-trace"
-              | "mexpr-mcmc-lightweight"
-              | "mexpr-pmcmc-pimh"
+                "mcmc-naive"
+              | "mcmc-trace"
+              | "mcmc-lightweight"
+              | "pmcmc-pimh"
             then
               if options.printAcceptanceRate then
                 app_ (var_ "printAcceptRate") (var_ "d")
@@ -90,7 +90,7 @@ lang CPPLBackcompat = LoadRuntime
           (TmLam {
             ident = nameNoSym "",
             tyAnnot = TyRecord {fields = mapEmpty cmpSID, info = infoTm ast},
-            tyIdent = TyRecord {fields = mapEmpty cmpSID, info = infoTm ast},
+            tyParam = TyRecord {fields = mapEmpty cmpSID, info = infoTm ast},
             body = ast, ty = TyUnknown {info = infoTm ast}, info = infoTm ast
           }),
         ulet_ "particles" (int_ options.particles),
