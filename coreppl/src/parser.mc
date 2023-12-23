@@ -2,6 +2,7 @@ include "digraph.mc"
 include "mexpr/boot-parser.mc"
 include "mexpr/keyword-maker.mc"
 include "mexpr/builtin.mc"
+include "pmexpr/ast.mc"
 
 include "coreppl.mc"
 include "pgm.mc"
@@ -11,6 +12,7 @@ include "inference/smc.mc"
 include "inference/smc-apf.mc"
 include "inference/smc-bpf.mc"
 include "inference/is-lw.mc"
+include "inference/is-accelerate.mc"
 include "inference/mcmc-lightweight.mc"
 include "inference/mcmc-naive.mc"
 include "inference/mcmc-trace.mc"
@@ -18,11 +20,11 @@ include "inference/pmcmc-pimh.mc"
 
 lang DPPLParser =
   BootParser + MExprPrettyPrint + MExprPPL + Resample +
-  ProbabilisticGraphicalModel + KeywordMaker +
+  ProbabilisticGraphicalModel + PMExprAst +
 
-  ImportanceSamplingMethod + BPFMethod + APFMethod +
-  LightweightMCMCMethod  + NaiveMCMCMethod + TraceMCMCMethod +
-	PIMHMethod
+  ImportanceSamplingMethod /-+ ImportanceAccelerateSamplingMethod-/ + BPFMethod +
+  APFMethod + LightweightMCMCMethod  + NaiveMCMCMethod + TraceMCMCMethod +
+  PIMHMethod
 
   -- Interprets the argument to infer which encodes the inference method and
   -- its configuration parameters.

@@ -1,5 +1,5 @@
 include "dppl-arg.mc"
-include "mexpr/mexpr.mc"
+include "pmexpr/pprint.mc"
 include "sys.mc"
 
 include "coreppl-to-rootppl/compile.mc"
@@ -14,7 +14,7 @@ let buildMExpr = lam options. lam ast.
 
   -- Compile to MExpr
   let outName = sysTempFileMake () in
-  writeFile outName (use MExpr in concat "mexpr\n" (mexprToString ast));
+  writeFile outName (use PMExprPrettyPrint in concat "mexpr\n" (mexprToString ast));
 
   -- Make intermediate mc file visible in the current dir if option is set
   (if options.outputMc then
